@@ -1110,14 +1110,27 @@ essencial-clube-app/
 
 Para facilitar os testes, as seguintes credenciais foram configuradas pelos scripts de `seed`:
 
+### **Admin**
+- **Email:** `admin@essencialclube.com.br`
+- **Senha:** `admin123`
+- **Acesso:** Painel administrativo completo (`/admin`)
+
 ### **Cliente de Teste**
 - **Email:** `cliente@email.com`
 - **Senha:** `cliente123`
 - **CPF:** `11122233344`
+- **Acesso:** Dashboard do cliente (`/dashboard`)
 
 ### **Parceiro de Teste**
 - **Email:** `parceiro@email.com`
 - **Senha:** `parceiro123`
+- **Acesso:** Painel do parceiro (`/parceiro`)
+
+### **Como criar os usuários de teste:**
+```bash
+cd essencial-clube-api
+node src/utils/seed.js
+```
 
 ---
 
