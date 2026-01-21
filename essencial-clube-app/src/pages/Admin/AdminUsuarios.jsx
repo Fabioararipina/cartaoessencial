@@ -137,7 +137,7 @@ export default function AdminUsuarios() {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
+    <Container maxWidth="md" sx={{ py: 3 }}>
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h5" component="h1" gutterBottom>
