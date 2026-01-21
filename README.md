@@ -1,0 +1,1206 @@
+# ESSENCIAL SAÚDE - Sistema de Pontos e Benefícios
+
+## 📋 VISÃO GERAL
+
+Sistema de fidelidade para cartão de benefícios de saúde com mecânica de gamificação, programa de indicações e rede de parceiros.
+
+**Objetivo:** Reduzir inadimplência através de uso frequente, viralização por indicação e benefícios do dia a dia.
+
+**MVP:** 15 dias de desenvolvimento
+
+---
+
+## 🎯 FUNCIONALIDADES PRINCIPAIS
+
+### **CORE (Prioridade MVP)**
+1. ✅ Sistema de pontos (ganho, expiração, resgate)
+2. ✅ Cadastro e autenticação de usuários
+3. ✅ Painel do parceiro (lançamento de pontos)
+4. ✅ Painel do cliente (saldo, extrato, prêmios)
+5. ✅ Sistema de indicação (link único, tracking)
+6. ✅ Integração Asaas (pagamentos, webhooks)
+7. ✅ Notificações (Push + Email)
+8. ✅ Catálogo de prêmios e resgates
+
+### **DIFERENCIAIS**
+- Sistema de expiração inteligente (12 meses renovável)
+- Reativação automática via Pix (cliente inativo paga na hora)
+- Programa de embaixadores (afiliados)
+- Gamificação (níveis, badges, missões)
+
+---
+
+## 🏗️ ARQUITETURA
+
+### **TIPO DE APLICAÇÃO**
+**PWA (Progressive Web App)**
+- Site responsivo que funciona como app
+- Instalável na tela inicial
+- Push notifications
+- Funciona offline (parcial)
+
+### **STACK TECNOLÓGICA**
+
+**Backend:**
+```
+- Node.js v18+
+- Express.js (API REST)
+- PostgreSQL (banco de dados)
+- JWT (autenticação)
+- BullMQ + Redis (filas de notificação)
+```
+
+**Frontend:**
+```
+- React 18
+- Vite (build)
+- Tailwind CSS (estilização)
+- React Router (rotas)
+- Axios (HTTP client)
+- Firebase SDK (push notifications)
+```
+
+**Integrações:**
+```
+- Asaas API (pagamentos)
+- Firebase Cloud Messaging (push)
+- Resend (email)
+- QR Code generator
+```
+
+**Hospedagem (sugestão):**
+```
+- Backend: Railway.app (grátis inicialmente)
+- Frontend: Vercel (grátis)
+- Banco: Railway PostgreSQL (grátis 500MB)
+- Redis: Upstash (grátis 10k comandos/dia)
+```
+
+---
+
+## 🗄️ DATABASE SCHEMA
+
+### **Tabela: users**
+```sql
+CREATE TABLE users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    cpf VARCHAR(11) UNIQUE NOT NULL,
+    nome VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    telefone VARCHAR(11),
+    senha_hash VARCHAR(255) NOT NULL,
+    tipo ENUM('cliente', 'parceiro', 'admin', 'embaixador') DEFAULT 'cliente',
+    status ENUM('ativo', 'inativo', 'bloqueado') DEFAULT 'inativo',
+    asaas_customer_id VARCHAR(50),
+    referral_code VARCHAR(20) UNIQUE,
+    referred_by INT,
+    nivel ENUM('bronze', 'prata', 'ouro', 'diamante') DEFAULT 'bronze',
+    total_indicacoes INT DEFAULT 0,
+    fcm_token TEXT,
+    last_payment TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (referred_by) REFERENCES users(id)
+);
+```
+
+### **Tabela: partners**
+```sql
+CREATE TABLE partners (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    nome_estabelecimento VARCHAR(100) NOT NULL,
+    cnpj VARCHAR(14),
+    categoria VARCHAR(50),
+    endereco TEXT,
+    desconto_oferecido VARCHAR(50),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+```
+
+### **Tabela: points_ledger**
+```sql
+CREATE TABLE points_ledger (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    points INT NOT NULL,
+    type ENUM('purchase', 'referral', 'bonus', 'mission', 'birthday', 'redemption') NOT NULL,
+    description VARCHAR(255),
+    partner_id INT,
+    transaction_value DECIMAL(10,2),
+    earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    expired BOOLEAN DEFAULT FALSE,
+    renewable BOOLEAN DEFAULT TRUE,
+    redeemed BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (partner_id) REFERENCES partners(id),
+    INDEX idx_user_active (user_id, expired, redeemed),
+    INDEX idx_expiration (expires_at, expired)
+);
+```
+
+### **Tabela: rewards**
+```sql
+CREATE TABLE rewards (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    nome VARCHAR(100) NOT NULL,
+    descricao TEXT,
+    points_required INT NOT NULL,
+    valor_equivalente DECIMAL(10,2),
+    estoque INT DEFAULT -1,
+    categoria ENUM('desconto', 'vale', 'produto', 'servico'),
+    imagem_url VARCHAR(255),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### **Tabela: redemptions**
+```sql
+CREATE TABLE redemptions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    reward_id INT NOT NULL,
+    points_spent INT NOT NULL,
+    status ENUM('pendente', 'aprovado', 'rejeitado', 'entregue') DEFAULT 'pendente',
+    codigo_resgate VARCHAR(20) UNIQUE,
+    observacoes TEXT,
+    approved_by INT,
+    approved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (reward_id) REFERENCES rewards(id),
+    FOREIGN KEY (approved_by) REFERENCES users(id)
+);
+```
+
+### **Tabela: transactions**
+```sql
+CREATE TABLE transactions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    partner_id INT NOT NULL,
+    user_id INT NOT NULL,
+    valor_compra DECIMAL(10,2) NOT NULL,
+    points_awarded INT NOT NULL,
+    data_compra TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (partner_id) REFERENCES partners(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    INDEX idx_partner_date (partner_id, data_compra)
+);
+```
+
+### **Tabela: referrals**
+```sql
+CREATE TABLE referrals (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    referrer_id INT NOT NULL,
+    referred_id INT NOT NULL,
+    status ENUM('pendente', 'convertido', 'cancelado') DEFAULT 'pendente',
+    points_awarded INT DEFAULT 0,
+    conversion_date TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (referrer_id) REFERENCES users(id),
+    FOREIGN KEY (referred_id) REFERENCES users(id),
+    UNIQUE KEY unique_referral (referrer_id, referred_id)
+);
+```
+
+### **Tabela: notifications**
+```sql
+CREATE TABLE notifications (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    type ENUM('expiration', 'referral', 'redemption', 'promo', 'payment') NOT NULL,
+    priority ENUM('info', 'normal', 'important', 'critical') DEFAULT 'normal',
+    title VARCHAR(100) NOT NULL,
+    message TEXT NOT NULL,
+    action_url VARCHAR(255),
+    channels JSON,
+    sent_push BOOLEAN DEFAULT FALSE,
+    sent_email BOOLEAN DEFAULT FALSE,
+    sent_sms BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP,
+    sent_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    INDEX idx_user_unread (user_id, read_at)
+);
+```
+
+### **Tabela: asaas_payments**
+```sql
+CREATE TABLE asaas_payments (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    asaas_payment_id VARCHAR(50) UNIQUE NOT NULL,
+    valor DECIMAL(10,2) NOT NULL,
+    status ENUM('pending', 'confirmed', 'received', 'overdue') DEFAULT 'pending',
+    billing_type ENUM('BOLETO', 'PIX', 'CREDIT_CARD'),
+    due_date DATE,
+    payment_date TIMESTAMP,
+    invoice_url TEXT,
+    pix_qrcode TEXT,
+    webhook_received_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    INDEX idx_status (status)
+);
+```
+
+---
+
+## 🔌 API ENDPOINTS
+
+### **AUTENTICAÇÃO**
+
+```
+POST   /api/auth/register
+POST   /api/auth/login
+POST   /api/auth/refresh
+POST   /api/auth/forgot-password
+```
+
+### **USUÁRIOS**
+
+```
+GET    /api/users/me
+PUT    /api/users/me
+GET    /api/users/:id/points
+GET    /api/users/:id/points/history
+GET    /api/users/referral-stats
+```
+
+### **PONTOS**
+
+```
+POST   /api/points/award           # Parceiro lança pontos
+GET    /api/points/balance/:userId
+GET    /api/points/expiring/:userId
+POST   /api/points/renew/:userId   # Renovação automática
+```
+
+### **PARCEIROS**
+
+```
+GET    /api/partners
+GET    /api/partners/:id
+POST   /api/partners              # Admin cria parceiro
+PUT    /api/partners/:id
+POST   /api/partners/transaction  # Parceiro lança venda
+```
+
+### **PRÊMIOS**
+
+```
+GET    /api/rewards
+GET    /api/rewards/:id
+POST   /api/rewards               # Admin cria prêmio
+POST   /api/redemptions           # Cliente resgata
+GET    /api/redemptions/my
+PUT    /api/redemptions/:id/approve  # Admin aprova
+```
+
+### **INDICAÇÕES**
+
+```
+GET    /api/referrals/my-code
+POST   /api/referrals/validate/:code
+GET    /api/referrals/stats
+GET    /api/referrals/leaderboard
+```
+
+### **ASAAS (Webhooks e Gestão)**
+
+```
+POST   /api/asaas/webhook         # Recebe eventos do Asaas
+POST   /api/asaas/create-charge   # Gera cobrança sob demanda
+GET    /api/asaas/sync-customers  # Importa clientes do Asaas
+GET    /api/asaas/payment-status/:userId
+```
+
+### **NOTIFICAÇÕES**
+
+```
+GET    /api/notifications
+PUT    /api/notifications/:id/read
+POST   /api/notifications/register-token  # FCM token
+```
+
+### **ADMIN**
+
+```
+GET    /api/admin/dashboard
+GET    /api/admin/users
+GET    /api/admin/redemptions/pending
+PUT    /api/admin/users/:id/status
+GET    /api/admin/reports/points
+```
+
+---
+
+## 🔗 INTEGRAÇÕES
+
+### **1. ASAAS (Pagamentos)**
+
+**Credenciais necessárias:**
+```env
+ASAAS_API_KEY=sua_chave_aqui
+ASAAS_WEBHOOK_TOKEN=token_seguro_gerado
+```
+
+**Fluxos principais:**
+
+**A) Importar clientes existentes:**
+```javascript
+GET https://api.asaas.com/v3/customers
+Headers: { access_token: ASAAS_API_KEY }
+```
+
+**B) Criar cobrança sob demanda:**
+```javascript
+POST https://api.asaas.com/v3/payments
+Body: {
+  customer: asaas_customer_id,
+  billingType: "PIX",
+  value: 49.90,
+  dueDate: "2026-02-01"
+}
+Response: { id, invoiceUrl, pixQrCodeData }
+```
+
+**C) Webhook de confirmação:**
+```javascript
+POST /api/asaas/webhook
+Body: {
+  event: "PAYMENT_CONFIRMED",
+  payment: { id, customer, value, paymentDate }
+}
+
+Ação: 
+1. Marcar user.status = 'ativo'
+2. Atualizar user.last_payment = NOW()
+3. Se referral: dar 200 pontos ao indicador
+```
+
+**D) Configurar webhook no Asaas:**
+```
+URL: https://seudominio.com/api/asaas/webhook
+Eventos: PAYMENT_CONFIRMED, PAYMENT_OVERDUE
+Token: ASAAS_WEBHOOK_TOKEN
+```
+
+### **2. FIREBASE (Push Notifications)**
+
+**Setup:**
+```bash
+npm install firebase firebase-admin
+```
+
+**Credenciais:**
+```env
+FIREBASE_PROJECT_ID=seu-projeto
+FIREBASE_PRIVATE_KEY=chave_privada
+FIREBASE_CLIENT_EMAIL=email@projeto.iam.gserviceaccount.com
+```
+
+**Frontend (registrar token):**
+```javascript
+import { getMessaging, getToken } from "firebase/messaging";
+
+const messaging = getMessaging();
+const token = await getToken(messaging, { 
+  vapidKey: 'SUA_VAPID_KEY' 
+});
+
+// Enviar token pro backend
+await axios.post('/api/notifications/register-token', { token });
+```
+
+**Backend (enviar push):**
+```javascript
+const admin = require('firebase-admin');
+
+await admin.messaging().send({
+  token: userFcmToken,
+  notification: {
+    title: '⚠️ Pontos expiram em 7 dias!',
+    body: 'Você tem 150 pontos. Resgate agora!'
+  },
+  data: { 
+    type: 'expiration',
+    url: '/premios' 
+  }
+});
+```
+
+### **3. RESEND (Email)**
+
+**Setup:**
+```bash
+npm install resend
+```
+
+**Credenciais:**
+```env
+RESEND_API_KEY=re_sua_chave
+RESEND_FROM_EMAIL=contato@essencialclube.com.br
+```
+
+**Enviar email:**
+```javascript
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+await resend.emails.send({
+  from: process.env.RESEND_FROM_EMAIL,
+  to: user.email,
+  subject: '⚠️ Seus pontos expiram em 7 dias!',
+  html: templateHTML
+});
+```
+
+---
+
+## 📱 FLUXOS PRINCIPAIS
+
+### **FLUXO 1: Cadastro via Indicação**
+
+```
+1. Cliente A compartilha link: /i/fabio123
+2. Cliente B acessa link
+3. Sistema registra: referred_by = Cliente A
+4. Cliente B preenche cadastro
+5. Sistema cria cliente no Asaas via API
+6. Asaas gera cobrança (Pix/Boleto)
+7. Cliente B paga
+8. Webhook Asaas → Sistema marca B como ativo
+9. Sistema dá 200 pontos pra Cliente A
+10. Sistema dá 100 pontos bônus pra Cliente B
+11. Push notification pra A: "João virou cliente! +200 pontos"
+```
+
+### **FLUXO 2: Lançamento de Pontos (Parceiro)**
+
+```
+1. Parceiro faz login
+2. Acessa tela "Lançar Pontos"
+3. Digita CPF do cliente
+4. Sistema verifica:
+   - Cliente existe? SIM
+   - Cliente está ativo? SIM
+5. Parceiro digita valor da compra: R$ 100,00
+6. Sistema calcula: 100 ÷ 10 = 10 pontos
+7. Salva em points_ledger:
+   - points: 10
+   - type: 'purchase'
+   - expires_at: NOW() + 12 meses
+   - renewable: true
+8. Salva em transactions
+9. Push pro cliente: "Você ganhou 10 pontos no Supermercado X!"
+10. Renova todos pontos renováveis do cliente (expires_at = NOW() + 12m)
+```
+
+### **FLUXO 3: Cliente Inativo Quer Usar**
+
+```
+1. Cliente vai no parceiro (está inadimplente)
+2. Parceiro digita CPF
+3. Sistema retorna: status = 'inativo'
+4. Sistema gera cobrança Asaas (Pix)
+5. Retorna QR Code
+6. Parceiro mostra QR pro cliente
+7. Cliente paga via Pix
+8. Webhook Asaas (5-30 segundos)
+9. Sistema ativa cliente
+10. Parceiro consulta CPF novamente
+11. Agora status = 'ativo'
+12. Lançamento de pontos liberado
+```
+
+### **FLUXO 4: Resgate de Prêmio**
+
+```
+1. Cliente acessa catálogo de prêmios
+2. Escolhe: "Vale-compras R$ 50 (500 pontos)"
+3. Sistema verifica saldo: 650 pontos (OK)
+4. Cliente confirma resgate
+5. Sistema:
+   - Cria registro em redemptions (status: pendente)
+   - Gera código único: ABC123XYZ
+   - NÃO deduz pontos ainda (só após aprovação)
+6. Notifica admin: "Novo resgate pendente"
+7. Admin aprova
+8. Sistema:
+   - Deduz 500 pontos (cria registro negativo em points_ledger)
+   - Atualiza redemption.status = 'aprovado'
+9. Email pro cliente com código de resgate
+10. Push: "Prêmio aprovado! Código: ABC123XYZ"
+```
+
+### **FLUXO 5: Expiração de Pontos**
+
+```
+CRON JOB (roda diariamente às 9h):
+
+1. Busca pontos expirando em 30 dias
+   → Cria notification (tipo: expiration, priority: normal)
+   → Envia push + email
+
+2. Busca pontos expirando em 7 dias
+   → Cria notification (priority: important)
+   → Envia push + email
+
+3. Busca pontos expirando em 1 dia
+   → Cria notification (priority: critical)
+   → Envia SMS + push + email
+
+4. Busca pontos com expires_at < NOW()
+   → UPDATE points_ledger SET expired = TRUE
+   
+5. Envia resumo: "X pontos expiraram hoje"
+```
+
+---
+
+## 🎮 MECÂNICA DE GAMIFICAÇÃO
+
+### **NÍVEIS (baseado em indicações)**
+
+```javascript
+const NIVEIS = {
+  bronze: { min: 0, max: 5, pontosPorIndicacao: 200, desconto: 0 },
+  prata: { min: 6, max: 15, pontosPorIndicacao: 250, desconto: 10 },
+  ouro: { min: 16, max: 30, pontosPorIndicacao: 300, desconto: 20 },
+  diamante: { min: 31, max: Infinity, pontosPorIndicacao: 400, desconto: 100 }
+};
+
+function calcularNivel(totalIndicacoes) {
+  if (totalIndicacoes >= 31) return 'diamante';
+  if (totalIndicacoes >= 16) return 'ouro';
+  if (totalIndicacoes >= 6) return 'prata';
+  return 'bronze';
+}
+```
+
+### **EXPIRAÇÃO E RENOVAÇÃO**
+
+```javascript
+// Política de expiração
+const EXPIRATION_RULES = {
+  purchase: { months: 12, renewable: true },
+  referral: { months: 24, renewable: true },
+  bonus: { months: 6, renewable: false },
+  mission: { months: 6, renewable: false }
+};
+
+// Renovação automática (quando cliente faz compra)
+async function renovarPontos(userId) {
+  await db.query(`
+    UPDATE points_ledger 
+    SET expires_at = DATE_ADD(NOW(), INTERVAL 12 MONTH)
+    WHERE user_id = ? 
+    AND renewable = TRUE 
+    AND expired = FALSE
+    AND redeemed = FALSE
+  `, [userId]);
+}
+```
+
+### **CÁLCULO DE PONTOS**
+
+```javascript
+// Regra básica: R$ 10 = 1 ponto
+function calcularPontos(valorCompra) {
+  return Math.floor(valorCompra / 10);
+}
+
+// Pontos de indicação (quando indicado paga primeira mensalidade)
+const PONTOS_INDICACAO = {
+  bronze: 200,
+  prata: 250,
+  ouro: 300,
+  diamante: 400
+};
+```
+
+---
+
+## 📅 CRONOGRAMA DE DESENVOLVIMENTO (15 DIAS)
+
+### **SPRINT 1: Base (Dias 1-5)**
+
+**Dia 1:**
+- [ ] Setup repositório Git
+- [ ] Configurar ambiente (Node, PostgreSQL, Redis)
+- [ ] Criar estrutura de pastas
+- [ ] Instalar dependências
+
+**Dia 2:**
+- [ ] Criar todas as tabelas do banco
+- [ ] Seeds iniciais (admin, prêmios exemplo)
+- [ ] Configurar variáveis de ambiente
+
+**Dia 3:**
+- [ ] Autenticação (register, login, JWT)
+- [ ] Middleware de auth
+- [ ] Endpoints básicos de usuário
+
+**Dia 4:**
+- [ ] Sistema de pontos (award, balance, history)
+- [ ] Lógica de expiração
+- [ ] Testes básicos
+
+**Dia 5:**
+- [ ] Integração Asaas (webhook, criar cobrança)
+- [ ] Importar clientes existentes
+- [ ] Testar fluxo de pagamento
+
+### **SPRINT 2: Core Features (Dias 6-10)**
+
+**Dia 6:**
+- [ ] Painel parceiro (frontend + backend)
+- [ ] Lançamento de pontos
+- [ ] Consulta de cliente (ativo/inativo)
+
+**Dia 7:**
+- [ ] Sistema de indicação
+- [ ] Geração de link único
+- [ ] Tracking de conversão
+
+**Dia 8:**
+- [ ] Catálogo de prêmios
+- [ ] Resgate de prêmios
+- [ ] Aprovação (admin)
+
+**Dia 9:**
+- [ ] Painel cliente (saldo, extrato, prêmios)
+- [ ] QR Code do cartão
+- [ ] Responsivo mobile
+
+**Dia 10:**
+- [ ] Notificações push (FCM setup)
+- [ ] Notificações email (Resend)
+- [ ] Cron job de expiração
+
+### **SPRINT 3: Polish & Deploy (Dias 11-15)**
+
+**Dia 11:**
+- [ ] Painel admin (dashboard, aprovações)
+- [ ] Relatórios básicos
+- [ ] Gestão de parceiros
+
+**Dia 12:**
+- [ ] PWA config (manifest, service worker)
+- [ ] Instalação na home
+- [ ] Funcionalidade offline básica
+
+**Dia 13:**
+- [ ] Testes completos (todos os fluxos)
+- [ ] Correção de bugs
+- [ ] Ajustes de UX
+
+**Dia 14:**
+- [ ] Deploy backend (Railway)
+- [ ] Deploy frontend (Vercel)
+- [ ] Configurar domínio
+
+**Dia 15:**
+- [ ] Testes em produção
+- [ ] Documentação final
+- [ ] Treinamento de 2 parceiros piloto
+
+---
+
+## 🚀 SETUP INICIAL
+
+### **1. Clonar e instalar**
+
+```bash
+# Backend
+mkdir essencial-clube-api
+cd essencial-clube-api
+npm init -y
+npm install express pg jsonwebtoken bcrypt cors dotenv
+npm install axios bull bullmq ioredis
+npm install firebase-admin resend qrcode
+npm install -D nodemon
+
+# Frontend
+npx create-vite essencial-clube-app --template react
+cd essencial-clube-app
+npm install
+npm install axios react-router-dom tailwindcss
+npm install firebase qrcode.react
+```
+
+### **2. Variáveis de ambiente (.env)**
+
+```env
+# Server
+PORT=3000
+NODE_ENV=development
+JWT_SECRET=chave_super_secreta_trocar
+
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=root
+DB_PASSWORD=senha
+DB_NAME=cartao_essencial
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# Asaas
+ASAAS_API_KEY=sua_chave_asaas
+ASAAS_WEBHOOK_TOKEN=token_seguro_webhook
+ASAAS_API_URL=https://api.asaas.com/v3
+
+# Firebase
+FIREBASE_PROJECT_ID=seu-projeto
+FIREBASE_PRIVATE_KEY=chave_privada
+FIREBASE_CLIENT_EMAIL=email@projeto.iam.gserviceaccount.com
+
+# Resend
+RESEND_API_KEY=re_sua_chave
+RESEND_FROM_EMAIL=contato@essencialclube.com.br
+
+# App
+FRONTEND_URL=http://localhost:5173
+BACKEND_URL=http://localhost:3000
+```
+
+### **3. Estrutura de pastas**
+
+```
+essencial-clube-api/
+├── src/
+│   ├── config/
+│   │   ├── database.js
+│   │   ├── firebase.js
+│   │   └── asaas.js
+│   ├── controllers/
+│   │   ├── authController.js
+│   │   ├── pointsController.js
+│   │   ├── partnersController.js
+│   │   ├── rewardsController.js
+│   │   ├── referralsController.js
+│   │   └── asaasController.js
+│   ├── middleware/
+│   │   ├── auth.js
+│   │   └── validateRequest.js
+│   ├── models/
+│   │   ├── User.js
+│   │   ├── Points.js
+│   │   ├── Partner.js
+│   │   ├── Reward.js
+│   │   └── Referral.js
+│   ├── routes/
+│   │   ├── auth.js
+│   │   ├── users.js
+│   │   ├── points.js
+│   │   ├── partners.js
+│   │   ├── rewards.js
+│   │   ├── referrals.js
+│   │   └── asaas.js
+│   ├── services/
+│   │   ├── notificationService.js
+│   │   ├── emailService.js
+│   │   ├── pushService.js
+│   │   └── asaasService.js
+│   ├── jobs/
+│   │   ├── expirationCheck.js
+│   │   └── notificationQueue.js
+│   └── utils/
+│       ├── validators.js
+│       └── helpers.js
+├── .env
+├── package.json
+└── server.js
+
+essencial-clube-app/
+├── src/
+│   ├── components/
+│   │   ├── Layout/
+│   │   ├── Dashboard/
+│   │   ├── Points/
+│   │   ├── Rewards/
+│   │   └── Referrals/
+│   ├── pages/
+│   │   ├── Login.jsx
+│   │   ├── Register.jsx
+│   │   ├── Home.jsx
+│   │   ├── Premios.jsx
+│   │   ├── Indicar.jsx
+│   │   └── Parceiro/
+│   ├── services/
+│   │   ├── api.js
+│   │   └── firebase.js
+│   ├── contexts/
+│   │   └── AuthContext.jsx
+│   └── App.jsx
+├── public/
+│   ├── manifest.json
+│   ├── firebase-messaging-sw.js
+│   └── icons/
+└── package.json
+```
+
+---
+
+## 🧪 TESTES CRÍTICOS
+
+### **Checklist de testes manuais:**
+
+**Autenticação:**
+- [ ] Cadastro novo cliente
+- [ ] Login com credenciais válidas
+- [ ] Login com credenciais inválidas
+- [ ] Refresh token
+
+**Pontos:**
+- [ ] Parceiro lança pontos (cliente ativo)
+- [ ] Parceiro tenta lançar (cliente inativo)
+- [ ] Consultar saldo
+- [ ] Ver extrato
+- [ ] Renovação automática após compra
+
+**Asaas:**
+- [ ] Webhook de pagamento confirmado
+- [ ] Gerar cobrança Pix sob demanda
+- [ ] Importar clientes existentes
+- [ ] Ativação automática após pagamento
+
+**Indicação:**
+- [ ] Gerar link único
+- [ ] Cadastro via link
+- [ ] Conversão (dar pontos após primeiro pagamento)
+- [ ] Subir de nível
+
+**Resgate:**
+- [ ] Listar prêmios disponíveis
+- [ ] Resgatar com saldo suficiente
+- [ ] Tentar resgatar sem saldo
+- [ ] Aprovação pelo admin
+- [ ] Dedução de pontos
+
+**Notificações:**
+- [ ] Push notification (desktop)
+- [ ] Push notification (mobile)
+- [ ] Email de boas-vindas
+- [ ] Email de expiração (30d, 7d)
+
+---
+
+## 📊 MÉTRICAS E MONITORING
+
+### **KPIs para dashboard admin:**
+
+```javascript
+// Métricas principais
+- Total de clientes ativos
+- Total de pontos em circulação
+- Pontos expirando próximos 30 dias
+- Taxa de resgate (% de pontos resgatados vs emitidos)
+- Resgates pendentes de aprovação
+- Top 10 indicadores
+- Receita recorrente mensal (MRR)
+- Churn rate (cancelamentos)
+- CAC (custo aquisição via indicação = R$ 0)
+```
+
+---
+
+## 🔐 SEGURANÇA
+
+### **Checklist de segurança:**
+
+- [ ] Senhas hash com bcrypt (salt rounds: 10)
+- [ ] JWT com expiração (15min access, 7d refresh)
+- [ ] Validação de input (todos endpoints)
+- [ ] Rate limiting (express-rate-limit)
+- [ ] CORS configurado (whitelist de domínios)
+- [ ] Webhook Asaas verificado (token)
+- [ ] SQL injection protection (prepared statements)
+- [ ] XSS protection (sanitize inputs)
+- [ ] HTTPS obrigatório em produção
+
+---
+
+## 📝 OBSERVAÇÕES FINAIS
+
+### **Prioridades:**
+1. Sistema de pontos funcionando (core)
+2. Integração Asaas (pagamentos)
+3. Painel parceiro (lançamento)
+4. Indicação (viralização)
+5. Notificações (engajamento)
+
+### **Pode deixar para depois (pós-MVP):**
+- Sistema de missões/desafios
+- Badges e conquistas
+- Programa de embaixadores completo
+- App nativo (Android/iOS)
+- Dashboard analytics avançado
+
+### **Decisões técnicas importantes:**
+- **PWA vs App Nativo:** Começar PWA, migrar depois se necessário
+- **Fila de notificações:** Redis + BullMQ (escalável)
+- **Hospedagem:** Railway (backend) + Vercel (frontend) = R$ 0 inicial
+- **Email:** Resend (3k grátis/mês suficiente pra começar)
+- **Push:** Firebase FCM (grátis ilimitado)
+
+---
+
+## 🎯 PRÓXIMOS PASSOS
+
+1. Gemini CLI: Ler este README
+2. Gerar estrutura base do projeto
+3. Implementar endpoints core
+4. Fabio: Testar cada funcionalidade conforme pronta
+5. Iterar e ajustar
+
+**Objetivo:** Sistema funcionando em 15 dias para lançamento piloto com 10 parceiros e 100 primeiros clientes.
+
+---
+
+**Versão:** 1.0  
+**Data:** Janeiro 2026  
+**Autor:** Claude + Fabio
+
+## 📝 LOG DE DESENVOLVIMENTO (Atualizado em 20/01/2026)
+
+### **Infraestrutura** ✅
+- Estrutura de pastas do Backend e Frontend criada
+- Dependências NPM instaladas
+- Banco de dados: **PostgreSQL** (alterado de MySQL)
+- Arquivo `init.sql` criado e executado
+- Servidor configurado com `nodemon` para desenvolvimento
+- Seeds executados (`seed.js`, `seed_partner_client.js`)
+
+---
+
+### **Backend - Status dos Endpoints** ✅ COMPLETO
+
+#### **Autenticação** (`/api/auth`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/auth/register` | POST | Cadastro de usuário | ✅ |
+| `/api/auth/login` | POST | Login com JWT (1h expiração) | ✅ |
+
+#### **Usuários** (`/api/users`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/users/me` | GET | Dados do usuário logado | ✅ |
+
+#### **Pontos** (`/api/points`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/points/balance/:userId` | GET | Consultar saldo de pontos | ✅ |
+| `/api/points/history/:userId` | GET | Extrato de pontos (paginado) | ✅ |
+| `/api/points/expiring/:userId` | GET | Pontos próximos de expirar | ✅ |
+| `/api/points/renew/:userId` | POST | Renovar pontos renováveis | ✅ |
+
+#### **Prêmios** (`/api/rewards`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/rewards` | GET | Listar catálogo de prêmios | ✅ |
+| `/api/rewards/:id` | GET | Detalhes de um prêmio | ✅ |
+| `/api/rewards` | POST | Admin cria prêmio | ✅ |
+| `/api/rewards/:id` | PUT | Admin atualiza prêmio | ✅ |
+
+#### **Resgates** (`/api/redemptions`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/redemptions` | POST | Cliente resgata prêmio | ✅ |
+| `/api/redemptions/my` | GET | Meus resgates | ✅ |
+| `/api/redemptions/pending` | GET | Resgates pendentes (Admin) | ✅ |
+| `/api/redemptions/:id/approve` | PUT | Aprovar/rejeitar resgate | ✅ |
+
+#### **Indicações** (`/api/referrals`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/referrals/my-code` | GET | Obter meu código de indicação | ✅ |
+| `/api/referrals/validate/:code` | POST | Validar código (público) | ✅ |
+| `/api/referrals/stats` | GET | Estatísticas de indicações | ✅ |
+| `/api/referrals/leaderboard` | GET | Ranking de indicadores | ✅ |
+| `/api/referrals/convert/:referredId` | POST | Converter indicação (Admin) | ✅ |
+
+#### **Parceiros** (`/api/partners`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/partners` | GET | Listar parceiros ativos | ✅ |
+| `/api/partners/:id` | GET | Detalhes do parceiro | ✅ |
+| `/api/partners/check-client/:cpf` | GET | Verificar status do cliente | ✅ |
+| `/api/partners/my-transactions` | GET | Histórico de transações | ✅ |
+| `/api/partners/transaction` | POST | Lançar pontos para cliente | ✅ |
+
+#### **Admin** (`/api/admin`)
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/admin/dashboard` | GET | Métricas do sistema | ✅ |
+| `/api/admin/users` | GET | Listar usuários (filtros) | ✅ |
+| `/api/admin/users/:id/status` | PUT | Atualizar status usuário | ✅ |
+| `/api/admin/redemptions/pending` | GET | Resgates pendentes | ✅ |
+| `/api/admin/reports/points` | GET | Relatório de pontos | ✅ |
+| `/api/admin/partners` | POST | Criar novo parceiro | ✅ |
+
+#### **Integrações (Fase 2)** - PENDENTE
+| Endpoint | Método | Descrição | Status |
+|----------|--------|-----------|--------|
+| `/api/asaas/webhook` | POST | Receber eventos Asaas | ❌ |
+| `/api/asaas/create-charge` | POST | Gerar cobrança Pix | ❌ |
+| `/api/notifications/register-token` | POST | Registrar FCM token | ❌ |
+
+---
+
+### Frontend - Status ✅ DESIGN PREMIUM APLICADO
+
+**Cores da Marca:**
+- Primária: `#5287fb` (azul)
+- Secundária: `#74ca4f` (verde)
+
+**Estrutura Implementada:**
+
+| Arquivo | Descrição | Status |
+|---------|-----------|--------|
+| `src/services/api.js` | Serviço HTTP com Axios | ✅ |
+| `src/contexts/AuthContext.jsx` | Contexto de autenticação | ✅ |
+| `src/components/PrivateRoute.jsx` | Proteção de rotas | ✅ |
+| `src/components/Layout/MainLayout.jsx` | Layout principal (header + nav) | ✅ |
+
+**Páginas Implementadas:**
+
+| Página | Rota | Descrição | Status |
+|--------|------|-----------|--------|
+| Login | `/login` | Tela de autenticação | ✅ |
+| Dashboard | `/dashboard` | Painel do cliente (saldo, histórico) | ✅ COMPLETO (Refatorado para Material-UI, problemas de renderização e warnings do Grid corrigidos, Card de saldo com gradiente de cor da marca) |
+| Prêmios | `/premios` | Catálogo e resgate | ✅ COMPLETO (Refatorado para Material-UI) |
+| Indicar | `/indicar` | Código, QR, ranking | ✅ COMPLETO (Refatorado para Material-UI, gradiente de cor da marca aplicado) |
+| Perfil | `/perfil` | Dados do usuário | ✅ COMPLETO |
+| Parceiro Home | `/parceiro` | Dashboard do parceiro | ✅ COMPLETO |
+| Lançar Pontos | `/parceiro/lancar` | Fluxo de lançamento | ✅ COMPLETO |
+
+**Páginas Pendentes (placeholders):**
+- `/admin` - Dashboard admin
+- `/admin/usuarios` - Gestão de usuários
+- `/admin/resgates` - Aprovação de resgates
+- `/extrato` - Extrato completo de pontos
+- `/cadastro` - Cadastro de novo usuário
+
+---
+
+### **Próximos Passos**
+
+1. **Testar fluxos completos** (login → dashboard → resgate)
+2. **Implementar telas Admin** (dashboard, aprovar resgates)
+3. **Implementar cadastro de usuário**
+4. **Integrações** (Asaas para pagamentos)
+5. **PWA** (manifest, service worker, offline)
+
+---
+
+## 🔑 CREDENCIAIS DE TESTE
+
+Para facilitar os testes, as seguintes credenciais foram configuradas pelos scripts de `seed`:
+
+### **Cliente de Teste**
+- **Email:** `cliente@email.com`
+- **Senha:** `cliente123`
+- **CPF:** `11122233344`
+
+### **Parceiro de Teste**
+- **Email:** `parceiro@email.com`
+- **Senha:** `parceiro123`
+
+---
+
+## 🔧 TROUBLESHOOTING
+
+### **Problema: Servidor travado (requisições não respondem)**
+
+**Sintomas:**
+- Login fica "carregando" infinitamente
+- Requisições HTTP não retornam resposta
+- `curl` para o backend trava
+
+**Causa:**
+O servidor Node.js pode travar quando:
+1. Muitas conexões TCP ficam pendentes (ESTABLISHED, CLOSE_WAIT)
+2. O servidor é reiniciado várias vezes sem fechar o anterior
+3. Pool de conexões do PostgreSQL satura
+
+**Solução:**
+
+1. **Verificar se a porta 3000 está ocupada:**
+```bash
+netstat -ano | findstr :3000
+```
+
+2. **Identificar o PID do processo:**
+```
+TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    12345
+                                                  ^^^^^
+                                                  Este é o PID
+```
+
+3. **Matar o processo travado (Windows PowerShell):**
+```powershell
+Stop-Process -Id 12345 -Force
+```
+
+4. **Reiniciar o backend:**
+```bash
+cd essencial-clube-api
+npm run dev
+```
+
+5. **Testar se está respondendo:**
+```bash
+curl http://localhost:3000/
+# Deve retornar: "API Essencial Saúde no ar!"
+```
+
+---
+
+### **Comandos úteis para diagnóstico**
+
+```bash
+# Ver processos na porta 3000 (Windows)
+netstat -ano | findstr :3000
+
+# Ver processos Node rodando (Windows PowerShell)
+Get-Process node
+
+# Matar todos os processos Node (Windows PowerShell)
+Stop-Process -Name node -Force
+
+# Testar login via terminal
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"cliente@email.com","senha":"cliente123"}'
+
+# Verificar conexão com PostgreSQL
+cd essencial-clube-api
+node -e "require('./src/config/database').query('SELECT NOW()').then(r => console.log('OK:', r.rows[0])).catch(e => console.error('ERRO:', e.message))"
+```
+
+---
+
+### **Prevenção**
+
+1. **Sempre parar o servidor antes de reiniciar** (Ctrl+C no terminal)
+2. **Usar apenas um terminal** para rodar o backend
+3. **Verificar se a porta está livre** antes de iniciar
+4. **Fechar o navegador** se fizer muitas requisições de teste
+
+---
+
+## 👨‍💻 OBSERVAÇÕES DE DESENVOLVIMENTO
+
+**Linguagem:** Toda a comunicação entre o Gemini e o usuário será em Português do Brasil (pt-BR).
+**Metodologia:** O Gemini sempre explicará o que planeja fazer e solicitará permissão antes de executar qualquer comando ou alteração no código.
+
