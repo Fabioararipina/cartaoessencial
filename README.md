@@ -1085,11 +1085,13 @@ essencial-clube-app/
 | Lançar Pontos | `/parceiro/lancar` | Fluxo de lançamento | ✅ COMPLETO (Refatorado para Material-UI com Stepper) |
 | Histórico | `/parceiro/historico` | Histórico de transações do parceiro | ✅ COMPLETO (Filtros por nome, CPF e período, paginação, resumo de totais) |
 
-**Páginas Pendentes (placeholders):**
-- `/admin` - Dashboard admin
-- `/admin/usuarios` - Gestão de usuários
-- `/admin/resgates` - Aprovação de resgates
-- `/extrato` - Extrato completo de pontos
+| Admin Dashboard | `/admin` | Painel administrativo com KPIs | ✅ COMPLETO (Métricas do sistema, resgates pendentes, ações rápidas) |
+| Admin Usuários | `/admin/usuarios` | Gestão de usuários | ✅ COMPLETO (Listagem, filtros, alteração de status) |
+| Admin Resgates | `/admin/resgates` | Aprovação de resgates | ✅ COMPLETO (Aprovar/rejeitar, tabs pendentes/processados) |
+| Admin Parceiros | `/admin/parceiros` | Gestão de parceiros | ✅ COMPLETO (Listagem, cadastro de novos parceiros) |
+
+**Páginas Pendentes:**
+- `/extrato` - Extrato completo de pontos do cliente
 - `/cadastro` - Cadastro de novo usuário
 
 ---

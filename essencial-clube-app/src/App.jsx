@@ -17,6 +17,12 @@ import ParceiroHome from './pages/Parceiro/ParceiroHome';
 import LancarPontos from './pages/Parceiro/LancarPontos';
 import Historico from './pages/Parceiro/Historico';
 
+// Páginas do Admin
+import AdminDashboard from './pages/Admin/AdminDashboard';
+import AdminUsuarios from './pages/Admin/AdminUsuarios';
+import AdminResgates from './pages/Admin/AdminResgates';
+import AdminParceiros from './pages/Admin/AdminParceiros';
+
 function App() {
   return (
     <BrowserRouter>
@@ -71,10 +77,10 @@ function App() {
               </RoleRoute>
             }
           >
-            <Route path="/admin" element={<Dashboard />} /> {/* TODO: criar AdminDashboard */}
-            <Route path="/admin/usuarios" element={<Dashboard />} />
-            <Route path="/admin/resgates" element={<Dashboard />} />
-            <Route path="/admin/parceiros" element={<Dashboard />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/usuarios" element={<AdminUsuarios />} />
+            <Route path="/admin/resgates" element={<AdminResgates />} />
+            <Route path="/admin/parceiros" element={<AdminParceiros />} />
           </Route>
 
           {/* Rota de indicação (pública) */}
