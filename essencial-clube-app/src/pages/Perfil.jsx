@@ -1,29 +1,13 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { pointsService, redemptionsService } from '../services/api';
-
-// Ícones SVG para Perfil
-const Icons = {
-  spinner: (
-    <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-  ),
-  settings: (
-    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  ),
-  help: (
-    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442A7.5 7.5 0 0112 18.75h.008v.008H12v-.008zM12 9.75a.75.75 0 01.75-.75h.008v.008H12v-.008z" />
-    </svg>
-  ),
-  logout: (
-    <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-    </svg>
-  ),
-};
+import {
+  Container, Box, Typography, CircularProgress, Grid, Card, CardContent,
+  List, ListItem, ListItemText, Divider, Avatar, Chip, Button
+} from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import LogoutIcon from '@mui/icons-material/Logout';
 
 export default function Perfil() {
   const { user, logout } = useAuth();
@@ -50,152 +34,231 @@ export default function Perfil() {
     }
   };
 
-  const getBadgeClass = (nivel) => {
-    const classes = {
-      bronze: 'badge-bronze',
-      prata: 'badge-prata',
-      ouro: 'badge-ouro',
-      diamante: 'badge-diamante',
+  const getNivelColor = (nivel) => {
+    const colors = {
+      bronze: '#CD7F32',
+      prata: '#C0C0C0',
+      ouro: '#FFD700',
+      diamante: '#B9F2FF',
     };
-    return classes[nivel] || 'badge-bronze';
+    return colors[nivel] || colors.bronze;
   };
 
-  const getStatusBadge = (status) => {
-    const styles = {
-      pendente: 'badge-warning',
-      aprovado: 'badge-success',
-      rejeitado: 'badge-error',
-      entregue: 'badge-info',
+  const getStatusChip = (status) => {
+    const config = {
+      pendente: { color: 'warning', label: 'Pendente' },
+      aprovado: { color: 'success', label: 'Aprovado' },
+      rejeitado: { color: 'error', label: 'Rejeitado' },
+      entregue: { color: 'info', label: 'Entregue' },
     };
-    const labels = {
-      pendente: 'Pendente',
-      aprovado: 'Aprovado',
-      rejeitado: 'Rejeitado',
-      entregue: 'Entregue',
-    };
-    return (
-      <span className={`badge ${styles[status] || ''}`}>
-        {labels[status] || status}
-      </span>
-    );
+    const { color, label } = config[status] || { color: 'default', label: status };
+    return <Chip label={label} color={color} size="small" />;
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        {Icons.spinner}
-      </div>
+      <Box display="flex" justifyContent="center" alignItems="center" sx={{ height: '60vh' }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
   return (
-    <div className="max-w-xl mx-auto space-y-6">
+    <Container maxWidth="sm" sx={{ py: 3 }}>
       {/* Header do Perfil */}
-      <div className="card text-center py-8">
-        <div className="w-20 h-20 bg-primary-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-3xl font-bold text-primary-500">
-            {user?.nome?.charAt(0).toUpperCase()}
-          </span>
-        </div>
-        <h2 className="text-xl font-bold text-gray-900">{user?.nome}</h2>
-        <p className="text-gray-500">{user?.email}</p>
-        <div className="flex items-center justify-center gap-2 mt-2">
-          <span className={`badge ${getBadgeClass(user?.nivel)}`}>
-            {user?.nivel}
-          </span>
-          <span className="text-xs text-gray-500 capitalize">• {user?.tipo}</span>
-        </div>
-      </div>
+      <Card sx={{ textAlign: 'center', p: 4, mb: 3 }}>
+        <Avatar
+          sx={{
+            width: 80,
+            height: 80,
+            bgcolor: 'primary.main',
+            fontSize: '2rem',
+            fontWeight: 'bold',
+            mx: 'auto',
+            mb: 2
+          }}
+        >
+          {user?.nome?.charAt(0).toUpperCase()}
+        </Avatar>
+        <Typography variant="h5" fontWeight="bold" gutterBottom>
+          {user?.nome}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" gutterBottom>
+          {user?.email}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 1 }}>
+          <Chip
+            label={user?.nivel}
+            size="small"
+            sx={{
+              bgcolor: getNivelColor(user?.nivel),
+              color: user?.nivel === 'diamante' ? 'text.primary' : 'white',
+              fontWeight: 'bold',
+              textTransform: 'capitalize'
+            }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
+            • {user?.tipo}
+          </Typography>
+        </Box>
+      </Card>
 
       {/* Estatísticas */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="card text-center">
-          <p className="text-2xl font-bold text-primary-500">{saldo.toLocaleString()}</p>
-          <p className="text-sm text-gray-500">Pontos</p>
-        </div>
-        <div className="card text-center">
-          <p className="text-2xl font-bold text-secondary-500">{user?.total_indicacoes || 0}</p>
-          <p className="text-sm text-gray-500">Indicações</p>
-        </div>
-      </div>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={6}>
+          <Card sx={{ textAlign: 'center', p: 2 }}>
+            <Typography variant="h4" fontWeight="bold" color="primary.main">
+              {saldo.toLocaleString()}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Pontos
+            </Typography>
+          </Card>
+        </Grid>
+        <Grid item xs={6}>
+          <Card sx={{ textAlign: 'center', p: 2 }}>
+            <Typography variant="h4" fontWeight="bold" color="secondary.main">
+              {user?.total_indicacoes || 0}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Indicações
+            </Typography>
+          </Card>
+        </Grid>
+      </Grid>
 
       {/* Dados Pessoais */}
-      <div className="card">
-        <h3 className="font-semibold text-gray-900 mb-4">Dados Pessoais</h3>
-        <div className="space-y-3">
-          <div className="flex justify-between py-2 border-b border-gray-200">
-            <span className="text-gray-500">CPF</span>
-            <span className="font-medium text-gray-900">
-              {user?.cpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
-            </span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-gray-200">
-            <span className="text-gray-500">Email</span>
-            <span className="font-medium text-gray-900">{user?.email}</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-gray-200">
-            <span className="text-gray-500">Telefone</span>
-            <span className="font-medium text-gray-900">{user?.telefone || '-'}</span>
-          </div>
-          <div className="flex justify-between py-2">
-            <span className="text-gray-500">Membro desde</span>
-            <span className="font-medium text-gray-900">
-              {user?.created_at ? new Date(user.created_at).toLocaleDateString('pt-BR') : '-'}
-            </span>
-          </div>
-        </div>
-      </div>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" fontWeight="medium" gutterBottom>
+            Dados Pessoais
+          </Typography>
+          <List disablePadding>
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText
+                primary="CPF"
+                secondary={user?.cpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
+                primaryTypographyProps={{ color: 'text.secondary', variant: 'body2' }}
+                secondaryTypographyProps={{ fontWeight: 'medium', color: 'text.primary' }}
+              />
+            </ListItem>
+            <Divider />
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText
+                primary="Email"
+                secondary={user?.email}
+                primaryTypographyProps={{ color: 'text.secondary', variant: 'body2' }}
+                secondaryTypographyProps={{ fontWeight: 'medium', color: 'text.primary' }}
+              />
+            </ListItem>
+            <Divider />
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText
+                primary="Telefone"
+                secondary={user?.telefone || '-'}
+                primaryTypographyProps={{ color: 'text.secondary', variant: 'body2' }}
+                secondaryTypographyProps={{ fontWeight: 'medium', color: 'text.primary' }}
+              />
+            </ListItem>
+            <Divider />
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText
+                primary="Membro desde"
+                secondary={user?.created_at ? new Date(user.created_at).toLocaleDateString('pt-BR') : '-'}
+                primaryTypographyProps={{ color: 'text.secondary', variant: 'body2' }}
+                secondaryTypographyProps={{ fontWeight: 'medium', color: 'text.primary' }}
+              />
+            </ListItem>
+          </List>
+        </CardContent>
+      </Card>
 
       {/* Meus Resgates */}
-      <div className="card">
-        <h3 className="font-semibold text-gray-900 mb-4">Meus Resgates</h3>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" fontWeight="medium" gutterBottom>
+            Meus Resgates
+          </Typography>
 
-        {resgates.length === 0 ? (
-          <p className="text-gray-500 text-center py-6">
-            Você ainda não resgatou nenhum prêmio
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {resgates.slice(0, 5).map((resgate) => (
-              <div key={resgate.id} className="flex items-center justify-between py-2 border-b border-gray-200 last:border-0">
-                <div>
-                  <p className="font-medium text-gray-900">{resgate.reward_nome}</p>
-                  <p className="text-xs text-gray-500">
-                    Código: {resgate.codigo_resgate}
-                  </p>
-                </div>
-                <div className="text-right">
-                  {getStatusBadge(resgate.status)}
-                  <p className="text-xs text-gray-500 mt-1">
-                    {resgate.points_spent} pts
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+          {resgates.length === 0 ? (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                Você ainda não resgatou nenhum prêmio
+              </Typography>
+            </Box>
+          ) : (
+            <List disablePadding>
+              {resgates.slice(0, 5).map((resgate, index) => (
+                <React.Fragment key={resgate.id}>
+                  <ListItem sx={{ px: 0, alignItems: 'flex-start' }}>
+                    <ListItemText
+                      primary={resgate.reward_nome}
+                      secondary={`Código: ${resgate.codigo_resgate}`}
+                      primaryTypographyProps={{ fontWeight: 'medium' }}
+                      secondaryTypographyProps={{ variant: 'caption' }}
+                    />
+                    <Box sx={{ textAlign: 'right' }}>
+                      {getStatusChip(resgate.status)}
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                        {resgate.points_spent} pts
+                      </Typography>
+                    </Box>
+                  </ListItem>
+                  {index < resgates.slice(0, 5).length - 1 && <Divider />}
+                </React.Fragment>
+              ))}
+            </List>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Ações */}
-      <div className="space-y-3">
-        <button className="card w-full text-left flex items-center gap-3 hover:bg-gray-50 transition-colors">
-          {Icons.settings}
-          <span className="font-medium text-gray-900">Configurações</span>
-        </button>
-
-        <button className="card w-full text-left flex items-center gap-3 hover:bg-gray-50 transition-colors">
-          {Icons.help}
-          <span className="font-medium text-gray-900">Ajuda</span>
-        </button>
-
-        <button
-          onClick={logout}
-          className="card w-full text-left flex items-center gap-3 hover:bg-red-50 transition-colors text-red-600"
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Card
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            p: 2,
+            cursor: 'pointer',
+            '&:hover': { bgcolor: 'action.hover' }
+          }}
         >
-          {Icons.logout}
-          <span className="font-medium">Sair da conta</span>
-        </button>
-      </div>
-    </div>
+          <SettingsIcon color="action" />
+          <Typography fontWeight="medium">Configurações</Typography>
+        </Card>
+
+        <Card
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            p: 2,
+            cursor: 'pointer',
+            '&:hover': { bgcolor: 'action.hover' }
+          }}
+        >
+          <HelpOutlineIcon color="action" />
+          <Typography fontWeight="medium">Ajuda</Typography>
+        </Card>
+
+        <Card
+          onClick={logout}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            p: 2,
+            cursor: 'pointer',
+            '&:hover': { bgcolor: 'error.lighter' }
+          }}
+        >
+          <LogoutIcon color="error" />
+          <Typography fontWeight="medium" color="error.main">
+            Sair da conta
+          </Typography>
+        </Card>
+      </Box>
+    </Container>
   );
 }

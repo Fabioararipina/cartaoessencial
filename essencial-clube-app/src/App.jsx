@@ -15,6 +15,7 @@ import Perfil from './pages/Perfil';
 // Páginas do Parceiro
 import ParceiroHome from './pages/Parceiro/ParceiroHome';
 import LancarPontos from './pages/Parceiro/LancarPontos';
+import Historico from './pages/Parceiro/Historico';
 
 function App() {
   return (
@@ -59,7 +60,7 @@ function App() {
           >
             <Route path="/parceiro" element={<ParceiroHome />} />
             <Route path="/parceiro/lancar" element={<LancarPontos />} />
-            <Route path="/parceiro/historico" element={<ParceiroHome />} /> {/* TODO: criar página */}
+            <Route path="/parceiro/historico" element={<Historico />} />
           </Route>
 
           {/* Rotas do Admin */}

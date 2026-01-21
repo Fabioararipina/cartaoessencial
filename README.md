@@ -1080,9 +1080,10 @@ essencial-clube-app/
 | Dashboard | `/dashboard` | Painel do cliente (saldo, histórico) | ✅ COMPLETO (Refatorado para Material-UI, problemas de renderização e warnings do Grid corrigidos, Card de saldo com gradiente de cor da marca) |
 | Prêmios | `/premios` | Catálogo e resgate | ✅ COMPLETO (Refatorado para Material-UI) |
 | Indicar | `/indicar` | Código, QR, ranking | ✅ COMPLETO (Refatorado para Material-UI, gradiente de cor da marca aplicado) |
-| Perfil | `/perfil` | Dados do usuário | ✅ COMPLETO |
-| Parceiro Home | `/parceiro` | Dashboard do parceiro | ✅ COMPLETO |
-| Lançar Pontos | `/parceiro/lancar` | Fluxo de lançamento | ✅ COMPLETO |
+| Perfil | `/perfil` | Dados do usuário | ✅ COMPLETO (Refatorado para Material-UI) |
+| Parceiro Home | `/parceiro` | Dashboard do parceiro com KPIs, gráficos e indicadores | ✅ COMPLETO (Dashboard completo com métricas, gráfico de barras 7 dias, indicadores de tendência) |
+| Lançar Pontos | `/parceiro/lancar` | Fluxo de lançamento | ✅ COMPLETO (Refatorado para Material-UI com Stepper) |
+| Histórico | `/parceiro/historico` | Histórico de transações do parceiro | ✅ COMPLETO (Filtros por nome, CPF e período, paginação, resumo de totais) |
 
 **Páginas Pendentes (placeholders):**
 - `/admin` - Dashboard admin
