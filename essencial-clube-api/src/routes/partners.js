@@ -18,6 +18,11 @@ router.get('/my-transactions', [verifyToken, isPartner], partnersController.getM
 // @access  Private (Partner)
 router.get('/check-client/:cpf', [verifyToken, isPartner], partnersController.checkClient);
 
+// @route   GET /api/partners/my-referred-clients
+// @desc    Listar clientes indicados pelo parceiro logado
+// @access  Private (Partner)
+router.get('/my-referred-clients', [verifyToken, isPartner], partnersController.getMyReferredClients);
+
 // @route   GET /api/partners/:id
 // @desc    Obter detalhes de um parceiro
 // @access  Private

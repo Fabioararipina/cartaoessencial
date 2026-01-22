@@ -16,8 +16,11 @@ export default function LancarPontos() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
+  const [pixData, setPixData] = useState(null); // Dados do PIX (QR Code, URL)
+  const [pixLoading, setPixLoading] = useState(false);
+  const [pixError, setPixError] = useState('');
 
-  const steps = ['Buscar Cliente', 'Lançar Pontos', 'Concluído'];
+  const steps = ['Buscar Cliente', 'Lançar Pontos', 'Pagamento PIX', 'Concluído'];
 
   // Formatar CPF enquanto digita
   const formatCpf = (value) => {
@@ -37,6 +40,7 @@ export default function LancarPontos() {
   const buscarCliente = async (e) => {
     e.preventDefault();
     setError('');
+    setPixError(''); // Limpar erro de PIX anterior
     setLoading(true);
 
     const cpfLimpo = cpf.replace(/\D/g, '');
@@ -53,17 +57,49 @@ export default function LancarPontos() {
       if (response.data.found) {
         setCliente(response.data.client);
 
-        if (!response.data.client.pode_lancar_pontos) {
-          setError(`Cliente com status "${response.data.client.status}". Não é possível lançar pontos.`);
+        if (response.data.client.status === 'inativo') {
+          setError('Cliente inativo. Gere um pagamento PIX para ativá-lo.');
+          setStep(2); // Vai para o passo de PIX (novo step)
+        } else if (response.data.client.status === 'ativo') {
+          setStep(1); // Continua para lançar pontos
         } else {
-          setStep(1);
+          setError(`Cliente com status "${response.data.client.status}". Não é possível lançar pontos ou ativar.`);
         }
+      } else {
+        setError('Cliente não encontrado.');
       }
     } catch (error) {
-      const message = error.response?.data?.error || 'Cliente não encontrado';
+      const message = error.response?.data?.error || 'Erro ao buscar cliente';
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGeneratePixPayment = async () => {
+    setPixLoading(true);
+    setPixError('');
+    setPixData(null);
+
+    const valorMensalidade = 49.90; // TODO: Definir valor da mensalidade (vir de uma config/DB)
+
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 1); // Vencimento para amanhã
+    const formattedDueDate = dueDate.toISOString().split('T')[0]; // Formato YYYY-MM-DD
+
+    try {
+      const response = await partnersService.createCharge({
+        userId: cliente.id,
+        value: valorMensalidade,
+        dueDate: formattedDueDate,
+        description: `Mensalidade Essencial Saúde - Cliente ${cliente.nome}`,
+      });
+      setPixData(response.data.charge);
+      // Permanece no step 2 para exibir o QR Code
+    } catch (err) {
+      setPixError(err.response?.data?.error || 'Erro ao gerar pagamento PIX.');
+    } finally {
+      setPixLoading(false);
     }
   };
 
@@ -98,7 +134,6 @@ export default function LancarPontos() {
     }
   };
 
-  // Reiniciar
   const novaTransacao = () => {
     setStep(0);
     setCpf('');
@@ -106,6 +141,9 @@ export default function LancarPontos() {
     setValorCompra('');
     setError('');
     setResultado(null);
+    setPixData(null); // Limpar dados do PIX
+    setPixError(''); // Limpar erro do PIX
+    setPixLoading(false); // Limpar loading do PIX
   };
 
   // Calcular pontos estimados
@@ -283,8 +321,89 @@ export default function LancarPontos() {
         </Card>
       )}
 
+      {/* Step 2: Pagamento PIX */}
+      {step === 2 && cliente && (
+        <Card>
+          <CardContent>
+            <Typography variant="h6" fontWeight="medium" gutterBottom>
+              Ativar Cliente Inativo
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              O cliente <strong>{cliente.nome}</strong> está inativo. Gere um pagamento PIX para ativá-lo e liberar o lançamento de pontos.
+            </Typography>
+
+            {pixError && (
+              <Alert severity="error" icon={<WarningAmberIcon />} sx={{ mb: 3 }}>
+                {pixError}
+              </Alert>
+            )}
+
+            {!pixData ? (
+              <Button
+                variant="contained"
+                fullWidth
+                size="large"
+                onClick={handleGeneratePixPayment}
+                disabled={pixLoading}
+                startIcon={pixLoading ? <CircularProgress size={24} color="inherit" /> : <PersonIcon />}
+              >
+                Gerar Pagamento PIX
+              </Button>
+            ) : (
+              <Box>
+                <Typography variant="body1" fontWeight="medium" sx={{ mb: 2 }}>
+                  Pagamento PIX Gerado!
+                </Typography>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Mostre o QR Code para o cliente ou envie o link da fatura. O status será atualizado automaticamente após o pagamento.
+                </Alert>
+
+                {pixData.pix_qrcode && (
+                  <Box sx={{ textAlign: 'center', mb: 2 }}>
+                    <img src={`data:image/png;base64,${pixData.pix_qrcode}`} alt="QR Code PIX" style={{ maxWidth: 200, height: 'auto' }} />
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Escaneie o QR Code
+                    </Typography>
+                  </Box>
+                )}
+
+                {pixData.invoiceUrl && (
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    target="_blank"
+                    href={pixData.invoiceUrl}
+                    sx={{ mb: 2 }}
+                  >
+                    Abrir Fatura Asaas
+                  </Button>
+                )}
+
+                <Button
+                  variant="contained"
+                  fullWidth
+                  onClick={novaTransacao}
+                >
+                  Voltar para Nova Transação
+                </Button>
+              </Box>
+            )}
+
+            <Button
+              variant="text"
+              fullWidth
+              sx={{ mt: 2 }}
+              onClick={() => novaTransacao()} // Permite voltar sem gerar PIX
+            >
+              Voltar (sem gerar PIX)
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+
       {/* Step 2: Sucesso */}
-      {step === 2 && resultado && (
+      {step === 3 && resultado && (
         <Card sx={{ textAlign: 'center' }}>
           <CardContent sx={{ py: 4 }}>
             <Box

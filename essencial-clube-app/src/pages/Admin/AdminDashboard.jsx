@@ -81,119 +81,108 @@ export default function AdminDashboard() {
       </Card>
 
       {/* KPIs */}
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <PeopleIcon color="primary" sx={{ fontSize: 32, mb: 1 }} />
-            <Typography variant="h5" fontWeight="bold" color="primary.main">
-              {stats.total_clientes || 0}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Clientes
-            </Typography>
-          </Card>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <StarIcon color="secondary" sx={{ fontSize: 32, mb: 1 }} />
-            <Typography variant="h5" fontWeight="bold" color="secondary.main">
-              {(stats.pontos_circulacao || 0).toLocaleString()}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Pontos
-            </Typography>
-          </Card>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <StorefrontIcon color="action" sx={{ fontSize: 32, mb: 1 }} />
-            <Typography variant="h5" fontWeight="bold">
-              {stats.total_parceiros || 0}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Parceiros
-            </Typography>
-          </Card>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <WarningAmberIcon color="warning" sx={{ fontSize: 32, mb: 1 }} />
-            <Typography variant="h5" fontWeight="bold" color="warning.main">
-              {(stats.pontos_expirando_30d || 0).toLocaleString()}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Expiram 30d
-            </Typography>
-          </Card>
-        </Grid>
-      </Grid>
+      <Box sx={{ display: 'flex', gap: 2, mb: 4 }}>
+        <Card sx={{ flex: 1, p: 2, textAlign: 'center' }}>
+          <PeopleIcon color="primary" sx={{ fontSize: 32, mb: 1 }} />
+          <Typography variant="h5" fontWeight="bold" color="primary.main">
+            {stats.total_clientes || 0}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Clientes
+          </Typography>
+        </Card>
+        <Card sx={{ flex: 1, p: 2, textAlign: 'center' }}>
+          <StarIcon color="secondary" sx={{ fontSize: 32, mb: 1 }} />
+          <Typography variant="h5" fontWeight="bold" color="secondary.main">
+            {(stats.pontos_circulacao || 0).toLocaleString()}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Pontos
+          </Typography>
+        </Card>
+        <Card sx={{ flex: 1, p: 2, textAlign: 'center' }}>
+          <StorefrontIcon color="action" sx={{ fontSize: 32, mb: 1 }} />
+          <Typography variant="h5" fontWeight="bold">
+            {stats.total_parceiros || 0}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Parceiros
+          </Typography>
+        </Card>
+        <Card sx={{ flex: 1, p: 2, textAlign: 'center' }}>
+          <WarningAmberIcon color="warning" sx={{ fontSize: 32, mb: 1 }} />
+          <Typography variant="h5" fontWeight="bold" color="warning.main">
+            {(stats.pontos_expirando_30d || 0).toLocaleString()}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Expiram 30d
+          </Typography>
+        </Card>
+      </Box>
 
       {/* Ações Rápidas */}
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={4}>
-          <Card
-            component={RouterLink}
-            to="/admin/usuarios"
-            sx={{
-              p: 3,
-              textAlign: 'center',
-              textDecoration: 'none',
-              color: 'inherit',
-              '&:hover': { bgcolor: 'action.hover' }
-            }}
-          >
-            <PeopleIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-            <Typography variant="subtitle1" fontWeight="medium">
-              Usuários
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Gerenciar
-            </Typography>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card
-            component={RouterLink}
-            to="/admin/resgates"
-            sx={{
-              p: 3,
-              textAlign: 'center',
-              textDecoration: 'none',
-              color: 'inherit',
-              '&:hover': { bgcolor: 'action.hover' }
-            }}
-          >
-            <CardGiftcardIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-            <Typography variant="subtitle1" fontWeight="medium">
-              Resgates
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Aprovar
-            </Typography>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card
-            component={RouterLink}
-            to="/admin/parceiros"
-            sx={{
-              p: 3,
-              textAlign: 'center',
-              textDecoration: 'none',
-              color: 'inherit',
-              '&:hover': { bgcolor: 'action.hover' }
-            }}
-          >
-            <StorefrontIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-            <Typography variant="subtitle1" fontWeight="medium">
-              Parceiros
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Gerenciar
-            </Typography>
-          </Card>
-        </Grid>
-      </Grid>
+      <Box sx={{ display: 'flex', gap: 2, mb: 4 }}>
+        <Card
+          component={RouterLink}
+          to="/admin/usuarios"
+          sx={{
+            flex: 1,
+            p: 3,
+            textAlign: 'center',
+            textDecoration: 'none',
+            color: 'inherit',
+            '&:hover': { bgcolor: 'action.hover' }
+          }}
+        >
+          <PeopleIcon color="primary" sx={{ fontSize: 48, mb: 1 }} />
+          <Typography variant="subtitle1" fontWeight="medium">
+            Usuários
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Gerenciar
+          </Typography>
+        </Card>
+        <Card
+          component={RouterLink}
+          to="/admin/resgates"
+          sx={{
+            flex: 1,
+            p: 3,
+            textAlign: 'center',
+            textDecoration: 'none',
+            color: 'inherit',
+            '&:hover': { bgcolor: 'action.hover' }
+          }}
+        >
+          <CardGiftcardIcon color="primary" sx={{ fontSize: 48, mb: 1 }} />
+          <Typography variant="subtitle1" fontWeight="medium">
+            Resgates
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Aprovar
+          </Typography>
+        </Card>
+        <Card
+          component={RouterLink}
+          to="/admin/parceiros"
+          sx={{
+            flex: 1,
+            p: 3,
+            textAlign: 'center',
+            textDecoration: 'none',
+            color: 'inherit',
+            '&:hover': { bgcolor: 'action.hover' }
+          }}
+        >
+          <StorefrontIcon color="primary" sx={{ fontSize: 48, mb: 1 }} />
+          <Typography variant="subtitle1" fontWeight="medium">
+            Parceiros
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Gerenciar
+          </Typography>
+        </Card>
+      </Box>
 
       {/* Resgates Pendentes */}
       <Card>

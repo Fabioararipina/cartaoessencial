@@ -1,0 +1,29 @@
+const express = require('express');
+const router = express.Router();
+const asaasController = require('../controllers/asaasController');
+const { verifyToken, isAdmin, isPartner } = require('../middleware/auth'); // Importar middlewares de autenticação
+
+// Rota para webhooks do Asaas (pública, mas protegida por token interno)
+router.post('/webhook', asaasController.handleWebhook);
+
+// Rotas protegidas para criar clientes e cobranças no Asaas (apenas para Admin/Parceiro)
+router.use(verifyToken); // Todas as rotas abaixo requerem autenticação
+router.use((req, res, next) => { // Apenas Admin ou Parceiro podem usar estas rotas
+    if (req.user && (req.user.tipo === 'admin' || req.user.tipo === 'parceiro')) {
+        next();
+    } else {
+        res.status(403).json({ error: 'Acesso negado. Requer privilégios de administrador ou parceiro.' });
+    }
+});
+
+// @route   POST /api/asaas/customers
+// @desc    Cria um cliente no Asaas e salva o ID no DB
+// @access  Private (Admin/Partner)
+router.post('/customers', asaasController.createAsaasCustomer);
+
+// @route   POST /api/asaas/charges
+// @desc    Cria uma cobrança no Asaas
+// @access  Private (Admin/Partner)
+router.post('/charges', asaasController.createAsaasCharge);
+
+module.exports = router;

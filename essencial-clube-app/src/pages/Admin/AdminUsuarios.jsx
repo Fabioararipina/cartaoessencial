@@ -5,13 +5,17 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Chip, IconButton, InputAdornment, Select, MenuItem, FormControl,
   InputLabel, Pagination, Dialog, DialogTitle, DialogContent, DialogActions,
-  Button, Alert
+  Button, Alert, Grid // Adicionar Grid aqui
 } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
-import EditIcon from '@mui/icons-material/Edit';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import BlockIcon from '@mui/icons-material/Block';
 import PersonOffIcon from '@mui/icons-material/PersonOff';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import FlashOnIcon from '@mui/icons-material/FlashOn'; // Importar FlashOnIcon
+import DeleteIcon from '@mui/icons-material/Delete'; // Importar DeleteIcon
+import SearchIcon from '@mui/icons-material/Search'; // Importar SearchIcon
+import EditIcon from '@mui/icons-material/Edit'; // Importar EditIcon
+
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'; // Importar CheckCircleIcon
 
 export default function AdminUsuarios() {
   const [users, setUsers] = useState([]);
@@ -24,12 +28,41 @@ export default function AdminUsuarios() {
   const [filterStatus, setFilterStatus] = useState('');
   const [page, setPage] = useState(1);
 
-  // Modal de edição de status
-  const [editDialog, setEditDialog] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [newStatus, setNewStatus] = useState('');
-  const [updating, setUpdating] = useState(false);
-  const [error, setError] = useState('');
+  // Modal de edição de usuário
+  const [userEditDialog, setUserEditDialog] = useState(false);
+  const [currentUserToEdit, setCurrentUserToEdit] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    nome: '',
+    email: '',
+    cpf: '',
+    telefone: '',
+    tipo: '',
+    status: '',
+    nivel: '',
+  });
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false);
+  const [editError, setEditError] = useState('');
+  
+  // Dialog de novo usuário
+  const [newUserDialog, setNewUserDialog] = useState(false);
+  const [newUserData, setNewUserData] = useState({
+    nome: '',
+    email: '',
+    cpf: '',
+    senha: '',
+    tipo: 'cliente',
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  // Estados para ativação manual
+  const [activatingUser, setActivatingUser] = useState(null); // Armazena o ID do usuário sendo ativado
+  const [activationError, setActivationError] = useState('');
+
+  // Estados para exclusão
+  const [deleteConfirmDialogOpen, setDeleteConfirmDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -50,6 +83,7 @@ export default function AdminUsuarios() {
       setTotalPages(response.data.totalPages || 1);
     } catch (error) {
       console.error('Erro ao carregar usuários:', error);
+      setError('Erro ao carregar usuários. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -60,31 +94,74 @@ export default function AdminUsuarios() {
     setPage(1);
     loadUsers();
   };
-
-  const openEditDialog = (user) => {
-    setSelectedUser(user);
-    setNewStatus(user.status);
-    setError('');
-    setEditDialog(true);
+  
+  const handleActivateUser = async (userId) => {
+    setActivatingUser(userId);
+    setActivationError('');
+    try {
+      await adminService.activateUserManually(userId);
+      loadUsers(); // Recarregar lista para refletir a mudança
+    } catch (err) {
+      setActivationError(err.response?.data?.error || 'Erro ao ativar usuário manualmente.');
+    } finally {
+      setActivatingUser(null);
+    }
   };
 
-  const handleUpdateStatus = async () => {
-    if (!selectedUser || newStatus === selectedUser.status) {
-      setEditDialog(false);
-      return;
-    }
+  const openUserEditDialog = (user) => {
+    setCurrentUserToEdit(user);
+    setEditFormData({
+      nome: user.nome,
+      email: user.email,
+      cpf: user.cpf,
+      telefone: user.telefone || '',
+      tipo: user.tipo,
+      status: user.status,
+      nivel: user.nivel,
+    });
+    setEditError(''); // Clear previous errors
+    setUserEditDialog(true);
+  };
+  
+  const handleNewUserChange = (field) => (e) => {
+    setNewUserData({ ...newUserData, [field]: e.target.value });
+  };
 
-    setUpdating(true);
-    setError('');
+  const handleUpdateUser = async () => {
+    if (!currentUserToEdit) return;
+
+    setIsUpdatingUser(true);
+    setEditError('');
 
     try {
-      await adminService.updateUserStatus(selectedUser.id, newStatus);
-      setEditDialog(false);
-      loadUsers();
+      await adminService.updateUser(currentUserToEdit.id, editFormData);
+      setUserEditDialog(false);
+      loadUsers(); // Recarrega a lista para refletir a mudança
     } catch (error) {
-      setError(error.response?.data?.error || 'Erro ao atualizar status');
+      setEditError(error.response?.data?.error || 'Erro ao atualizar usuário');
     } finally {
-      setUpdating(false);
+    }
+  };
+
+  const openDeleteConfirmDialog = (user) => {
+    setUserToDelete(user);
+    setDeleteConfirmDialogOpen(true);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+
+    setIsDeletingUser(true);
+    setEditError(''); // Reutilizando o estado de erro, ou poderíamos criar um novo
+
+    try {
+      await adminService.deleteUser(userToDelete.id);
+      setDeleteConfirmDialogOpen(false);
+      loadUsers(); // Recarrega a lista para refletir a mudança
+    } catch (error) {
+      setEditError(error.response?.data?.error || 'Erro ao excluir usuário');
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -137,15 +214,24 @@ export default function AdminUsuarios() {
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 3 }}>
+    <Container maxWidth="lg" sx={{ py: 3 }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h5" component="h1" gutterBottom>
-          Gestão de Usuários
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Visualize e gerencie todos os usuários do sistema
-        </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 4, flexWrap: 'wrap', gap: 2 }}>
+        <Box>
+          <Typography variant="h5" component="h1" gutterBottom>
+            Gestão de Usuários
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Visualize e gerencie todos os usuários do sistema
+          </Typography>
+        </Box>
+        <Button 
+          variant="contained" 
+          startIcon={<PersonAddIcon />}
+          onClick={() => setNewUserDialog(true)}
+        >
+          Novo Usuário
+        </Button>
       </Box>
 
       {/* Filtros */}
@@ -257,10 +343,31 @@ export default function AdminUsuarios() {
                       <TableCell align="right">
                         <IconButton
                           size="small"
-                          onClick={() => openEditDialog(user)}
-                          title="Alterar status"
+                          onClick={() => openUserEditDialog(user)}
+                          title="Editar usuário"
                         >
                           <EditIcon fontSize="small" />
+                        </IconButton>
+                        {user.status === 'inativo' && (
+                          <IconButton
+                            size="small"
+                            onClick={() => handleActivateUser(user.id)}
+                            title="Ativar Pagamento Manual"
+                            disabled={activatingUser === user.id}
+                          >
+                            {activatingUser === user.id ? (
+                                <CircularProgress size={16} />
+                            ) : (
+                                <FlashOnIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        )}
+                        <IconButton
+                          size="small"
+                          onClick={() => openDeleteConfirmDialog(user)}
+                          title="Excluir usuário"
+                        >
+                          <DeleteIcon fontSize="small" />
                         </IconButton>
                       </TableCell>
                     </TableRow>
@@ -284,48 +391,150 @@ export default function AdminUsuarios() {
         )}
       </Card>
 
-      {/* Dialog de Edição */}
-      <Dialog open={editDialog} onClose={() => setEditDialog(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Alterar Status do Usuário</DialogTitle>
+      {/* Dialog de Edição de Usuário Completa */}
+      <Dialog open={userEditDialog} onClose={() => setUserEditDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Editar Usuário</DialogTitle>
         <DialogContent>
-          {selectedUser && (
+          {currentUserToEdit && (
             <Box sx={{ pt: 1 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Usuário: <strong>{selectedUser.nome}</strong>
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Email: {selectedUser.email}
-              </Typography>
-
-              {error && (
+              {editError && (
                 <Alert severity="error" sx={{ mb: 2 }}>
-                  {error}
+                  {editError}
                 </Alert>
               )}
-
-              <FormControl fullWidth>
-                <InputLabel>Novo Status</InputLabel>
-                <Select
-                  value={newStatus}
-                  label="Novo Status"
-                  onChange={(e) => setNewStatus(e.target.value)}
-                >
-                  <MenuItem value="ativo">Ativo</MenuItem>
-                  <MenuItem value="inativo">Inativo</MenuItem>
-                  <MenuItem value="bloqueado">Bloqueado</MenuItem>
-                </Select>
-              </FormControl>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Nome Completo"
+                    value={editFormData.nome}
+                    onChange={(e) => setEditFormData({ ...editFormData, nome: e.target.value })}
+                    margin="normal"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Email"
+                    type="email"
+                    value={editFormData.email}
+                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                    margin="normal"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="CPF (apenas números)"
+                    value={editFormData.cpf}
+                    onChange={(e) => setEditFormData({ ...editFormData, cpf: e.target.value })}
+                    margin="normal"
+                    inputProps={{ maxLength: 11 }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Telefone"
+                    value={editFormData.telefone}
+                    onChange={(e) => setEditFormData({ ...editFormData, telefone: e.target.value })}
+                    margin="normal"
+                    inputProps={{ maxLength: 11 }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth margin="normal">
+                    <InputLabel>Tipo</InputLabel>
+                    <Select
+                      label="Tipo"
+                      value={editFormData.tipo}
+                      onChange={(e) => setEditFormData({ ...editFormData, tipo: e.target.value })}
+                    >
+                      <MenuItem value="cliente">Cliente</MenuItem>
+                      <MenuItem value="parceiro">Parceiro</MenuItem>
+                      <MenuItem value="admin">Admin</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth margin="normal">
+                    <InputLabel>Status</InputLabel>
+                    <Select
+                      label="Status"
+                      value={editFormData.status}
+                      onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                    >
+                      <MenuItem value="ativo">Ativo</MenuItem>
+                      <MenuItem value="inativo">Inativo</MenuItem>
+                      <MenuItem value="bloqueado">Bloqueado</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth margin="normal">
+                    <InputLabel>Nível</InputLabel>
+                    <Select
+                      label="Nível"
+                      value={editFormData.nivel}
+                      onChange={(e) => setEditFormData({ ...editFormData, nivel: e.target.value })}
+                    >
+                      <MenuItem value="bronze">Bronze</MenuItem>
+                      <MenuItem value="prata">Prata</MenuItem>
+                      <MenuItem value="ouro">Ouro</MenuItem>
+                      <MenuItem value="diamante">Diamante</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
             </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditDialog(false)}>Cancelar</Button>
+          <Button onClick={() => setUserEditDialog(false)}>Cancelar</Button>
           <Button
-            onClick={handleUpdateStatus}
+            onClick={handleUpdateUser}
             variant="contained"
-            disabled={updating || newStatus === selectedUser?.status}
+            disabled={isUpdatingUser}
           >
-            {updating ? <CircularProgress size={20} /> : 'Salvar'}
+            {isUpdatingUser ? <CircularProgress size={20} /> : 'Salvar Alterações'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog de Confirmação de Exclusão */}
+      <Dialog
+        open={deleteConfirmDialogOpen}
+        onClose={() => setDeleteConfirmDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Confirmar Exclusão</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Tem certeza que deseja excluir o usuário{' '}
+            <strong>{userToDelete?.nome}</strong> (ID: {userToDelete?.id})?
+            Esta ação não pode ser desfeita.
+          </Typography>
+          {editError && ( // Reutilizando o estado de erro
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {editError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmDialogOpen(false)} disabled={isDeletingUser}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleDeleteUser}
+            color="error"
+            variant="contained"
+            disabled={isDeletingUser}
+          >
+            {isDeletingUser ? <CircularProgress size={20} /> : 'Excluir'}
           </Button>
         </DialogActions>
       </Dialog>

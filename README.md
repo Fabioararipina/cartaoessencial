@@ -348,7 +348,7 @@ GET    /api/admin/reports/points
 **Credenciais necessárias:**
 ```env
 ASAAS_API_KEY=sua_chave_aqui
-ASAAS_WEBHOOK_TOKEN=token_seguro_gerado
+ASAAS_WEBHOOK_TOKEN=token_seguro_webhook
 ```
 
 **Fluxos principais:**
@@ -988,8 +988,9 @@ essencial-clube-app/
 #### **Autenticação** (`/api/auth`)
 | Endpoint | Método | Descrição | Status |
 |----------|--------|-----------|--------|
-| `/api/auth/register` | POST | Cadastro de usuário | ✅ |
+| `/api/auth/register` | POST | Cadastro de usuário (com indicação opcional de parceiro/admin) | ✅ |
 | `/api/auth/login` | POST | Login com JWT (1h expiração) | ✅ |
+| `/api/auth/refresh` | POST | Atualiza token de acesso | ✅ |
 
 #### **Usuários** (`/api/users`)
 | Endpoint | Método | Descrição | Status |
@@ -1046,6 +1047,9 @@ essencial-clube-app/
 | `/api/admin/users/:id/status` | PUT | Atualizar status usuário | ✅ |
 | `/api/admin/redemptions/pending` | GET | Resgates pendentes | ✅ |
 | `/api/admin/reports/points` | GET | Relatório de pontos | ✅ |
+| `/api/admin/users/:id/activate-manual` | POST | Ativa manualmente um usuário (com pontos de indicação) | ✅ |
+| `/api/admin/users/:id` | PUT | Atualizar detalhes completos de um usuário | ✅ |
+| `/api/admin/users/:id` | DELETE | Excluir um usuário | ✅ |
 | `/api/admin/partners` | POST | Criar novo parceiro | ✅ |
 
 #### **Integrações (Fase 2)** - PENDENTE
@@ -1077,18 +1081,20 @@ essencial-clube-app/
 | Página | Rota | Descrição | Status |
 |--------|------|-----------|--------|
 | Login | `/login` | Tela de autenticação | ✅ |
+| Cadastro | `/cadastro` | Tela de registro de novos usuários | ✅ |
 | Dashboard | `/dashboard` | Painel do cliente (saldo, histórico) | ✅ COMPLETO (Refatorado para Material-UI, problemas de renderização e warnings do Grid corrigidos, Card de saldo com gradiente de cor da marca) |
-| Prêmios | `/premios` | Catálogo e resgate | ✅ COMPLETO (Refatorado para Material-UI) |
+| Prêmios | /premios | Catálogo e resgate | ✅ COMPLETO (Layout refatorado para Flexbox manual com MUI Box para resolver conflitos de CSS, cards com altura fixa e imagens com ajuste automático para evitar cortes, visual WooCommerce-like alcançado) |
 | Indicar | `/indicar` | Código, QR, ranking | ✅ COMPLETO (Refatorado para Material-UI, gradiente de cor da marca aplicado) |
 | Perfil | `/perfil` | Dados do usuário | ✅ COMPLETO (Refatorado para Material-UI) |
-| Parceiro Home | `/parceiro` | Dashboard do parceiro com KPIs, gráficos e indicadores | ✅ COMPLETO (Dashboard completo com métricas, gráfico de barras 7 dias, indicadores de tendência) |
+| Parceiro Home | `/parceiro` | Dashboard do parceiro (com cadastro de cliente pelo parceiro) | ✅ COMPLETO (Dashboard completo com métricas, gráfico de barras 7 dias, indicadores de tendência) |
 | Lançar Pontos | `/parceiro/lancar` | Fluxo de lançamento | ✅ COMPLETO (Refatorado para Material-UI com Stepper) |
 | Histórico | `/parceiro/historico` | Histórico de transações do parceiro | ✅ COMPLETO (Filtros por nome, CPF e período, paginação, resumo de totais) |
 
-| Admin Dashboard | `/admin` | Painel administrativo com KPIs | ✅ COMPLETO (Métricas do sistema, resgates pendentes, ações rápidas) |
-| Admin Usuários | `/admin/usuarios` | Gestão de usuários | ✅ COMPLETO (Listagem, filtros, alteração de status) |
-| Admin Resgates | `/admin/resgates` | Aprovação de resgates | ✅ COMPLETO (Aprovar/rejeitar, tabs pendentes/processados) |
-| Admin Parceiros | `/admin/parceiros` | Gestão de parceiros | ✅ COMPLETO (Listagem, cadastro de novos parceiros) |
+| Admin Dashboard | `/admin` | Painel administrativo com KPIs | ✅ COMPLETO (CSS padronizado com Dashboard cliente, gradient, ações rápidas) |
+| Admin Usuários | `/admin/usuarios` | Gestão completa de usuários (CRUD, ativação manual de pagamento) | ✅ |
+| Admin Resgates | `/admin/resgates` | Aprovação de resgates | ✅ COMPLETO (Container md, aprovar/rejeitar, tabs) |
+| Admin Parceiros | `/admin/parceiros` | Gestão de parceiros | ✅ COMPLETO (Container md, listagem, cadastro de novos parceiros) |
+| Admin Prêmios | `/admin/premios` | Gestão de prêmios (criação, edição, listagem) | ✅ COMPLETO (Frontend) |
 
 **Páginas Pendentes:**
 - `/extrato` - Extrato completo de pontos do cliente
@@ -1206,6 +1212,30 @@ node -e "require('./src/config/database').query('SELECT NOW()').then(r => consol
 
 ---
 
+### **Comandos úteis para diagnóstico**
+
+```bash
+# Ver processos na porta 3000 (Windows)
+netstat -ano | findstr :3000
+
+# Ver processos Node rodando (Windows PowerShell)
+Get-Process node
+
+# Matar todos os processos Node (Windows PowerShell)
+Stop-Process -Name node -Force
+
+# Testar login via terminal
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"cliente@email.com","senha":"cliente123"}'
+
+# Verificar conexão com PostgreSQL
+cd essencial-clube-api
+node -e "require('./src/config/database').query('SELECT NOW()').then(r => console.log('OK:', r.rows[0])).catch(e => console.error('ERRO:', e.message))"
+```
+
+---
+
 ### **Prevenção**
 
 1. **Sempre parar o servidor antes de reiniciar** (Ctrl+C no terminal)
@@ -1215,8 +1245,145 @@ node -e "require('./src/config/database').query('SELECT NOW()').then(r => consol
 
 ---
 
+### **Problemas de Layout/Funcionalidade Recentes**
+
+**Problema: "Cliente Asaas não encontrado para este usuário."**
+- **Onde ocorre:** Geralmente ao tentar gerar um pagamento PIX para um cliente inativo no painel do parceiro (`/parceiro/lancar`).
+- **Possíveis Causas:**
+    1.  O usuário foi cadastrado antes da integração completa do Asaas.
+    2.  Houve um erro na comunicação com a API do Asaas durante o registro do usuário, e o `asaas_customer_id` não foi salvo.
+    3.  O usuário em questão não é do tipo 'cliente' (apenas clientes são registrados no Asaas automaticamente).
+- **Passos para Depuração:**
+    1.  **Verifique o Banco de Dados:** Acesse a tabela `users` e confira se a coluna `asaas_customer_id` está preenchida para o cliente que está gerando o erro. Se estiver `NULL`/vazia, o Asaas ID não foi salvo.
+    2.  **Teste um Novo Cadastro:** Crie um *novo* cliente (pela página `/cadastro` ou pelo botão "Cadastrar Cliente" no painel do parceiro). Verifique se este novo cliente tem um `asaas_customer_id` no DB e se o pagamento PIX pode ser gerado para ele.
+
+**Problema: "Botão Novo Usuário não funciona" (em Admin/Usuários)**
+- **Onde ocorre:** Ao clicar no botão "Novo Usuário" na página de "Gestão de Usuários" (`/admin/usuarios`).
+- **Possíveis Causas:** Um erro de JavaScript no frontend que impede o diálogo de abrir ou o formulário de funcionar.
+- **Passos para Depuração:**
+    1.  **Abra o Console do Navegador:** Acesse a página, abra as Ferramentas do Desenvolvedor (F12) e vá para a aba "Console".
+    2.  **Clique no botão "Novo Usuário":** Observe se alguma mensagem de erro (em vermelho) aparece no console. Envie a mensagem completa, incluindo a linha do arquivo.
+
+---
+
 ## 👨‍💻 OBSERVAÇÕES DE DESENVOLVIMENTO
 
 **Linguagem:** Toda a comunicação entre o Gemini e o usuário será em Português do Brasil (pt-BR).
 **Metodologia:** O Gemini sempre explicará o que planeja fazer e solicitará permissão antes de executar qualquer comando ou alteração no código.
 
+---
+
+## 📝 LOG DE DESENVOLVIMENTO - 22/01/2026
+
+### **Resumo do Dia**
+
+Hoje, focamos em corrigir bugs críticos e implementar o sistema de comissionamento para parceiros, que foi uma evolução da funcionalidade de "Parceiro poder ver seus indicados".
+
+#### **Correções de Bugs:**
+1.  **Cadastro de Usuário:**
+    *   Resolvemos o erro "Cliente Asaas não encontrado" ao desacoplar a criação do cliente no Asaas do registro de usuário. Agora, o cadastro no sistema é independente.
+    *   Corrigimos um erro crítico de `db.getClient is not a function` que impedia o registro de novos usuários e o processamento de webhooks. A forma de obter uma conexão com o banco de dados para transações foi padronizada para `db.connect()`.
+    *   Corrigimos a lógica de indicação para garantir que, quando um parceiro cadastra um cliente diretamente, um registro de `referral` seja criado corretamente, o que era a causa do painel de comissões aparecer vazio.
+
+2.  **Bugs de Frontend:**
+    *   Resolvemos múltiplos `ReferenceError` no frontend que impediam a renderização das páginas, relacionados a ícones e logos não importados (`StarsIcon`, `logo`).
+    *   Corrigimos um erro de roteamento no backend que fazia com que a rota `/api/partners/my-referred-clients` fosse incorretamente interpretada.
+    *   Corrigimos um `TypeError` no frontend causado por um valor numérico sendo tratado como string (`toFixed`).
+
+#### **Implementação do Sistema de Comissões Configuráveis:**
+Implementamos um sistema de ponta a ponta para que parceiros possam receber comissões financeiras por suas indicações, com regras configuráveis pelo administrador.
+
+1.  **Banco de Dados:**
+    *   Adicionamos as tabelas `commission_configs`, `commissions`, e `payout_requests`.
+    *   Adicionamos a coluna `min_payout_amount` para definir um valor mínimo de saque por regra de comissão.
+    *   Adicionamos a coluna `payout_info` na tabela `users` para armazenar os dados de pagamento (e.g., chave PIX) do parceiro.
+
+2.  **Backend:**
+    *   **API do Admin:** Criamos uma API completa (`/api/admin/commission-configs`) para o Admin gerenciar as Configurações de Comissão (criar, ler, atualizar, deletar).
+    *   **Serviço de Comissão:** Implementamos o `commissionService` com a lógica para calcular as comissões (primeira e recorrente) com base nas regras ativas.
+    *   **Integração com Pagamentos:** Atualizamos o `asaasController` para que, ao receber um webhook de pagamento confirmado (simulado), ele utilize o `commissionService` para calcular e salvar a comissão na nova tabela `commissions`.
+    *   **Painel do Parceiro:** O endpoint `/api/partners/my-referred-clients` foi totalmente refeito para retornar um relatório detalhado de indicações, pagamentos e comissões calculadas, incluindo um sumário.
+    *   **Solicitação de Saque:** Criamos o backend para a funcionalidade de "Solicitar Saque", que verifica o saldo pendente contra o valor mínimo e cria um registro de solicitação.
+
+3.  **Frontend:**
+    *   **Painel do Admin:** Criamos a página "Configurações de Comissão" (`/admin/commission-configs`), permitindo que o administrador crie e edite as regras de comissão, incluindo o novo campo de valor mínimo para saque.
+    *   **Painel do Parceiro:** Criamos o "Painel de Comissões" (`/parceiro/comissoes`), que exibe um resumo financeiro e uma lista detalhada dos clientes indicados e suas respectivas comissões.
+    *   **Perfil do Usuário:** Atualizamos a página "Perfil" (`/perfil`) para permitir que o parceiro adicione e edite suas informações de pagamento (atualmente em formato JSON).
+
+### **Próximos Passos (Plano para 23/01/2026):**
+
+1.  ~~**Melhorar a Entrada de Dados de Pagamento:** Substituir o campo de texto JSON na página de Perfil por campos individuais e mais amigáveis (ex: "Chave PIX", "Tipo de Chave").~~ ✅ CONCLUÍDO
+2.  ~~**Testar o Fluxo de Solicitação de Saque:** Realizar o teste completo de um parceiro clicando em "Solicitar Saque" e verificar se o registro é criado corretamente no backend.~~ ✅ CONCLUÍDO
+3.  ~~**Implementar a Gestão de Saques do Admin:**~~ ✅ CONCLUÍDO
+    *   ~~Criar uma nova página no painel do Admin (`/admin/payouts`) para listar as solicitações de saque pendentes.~~
+    *   ~~Implementar a lógica (backend e frontend) para o admin "Aprovar" um saque, o que mudaria o status das comissões relacionadas para 'paid'.~~
+4.  **Depurar o Webhook Real do Asaas:** A funcionalidade de comissão agora depende criticamente do webhook. Precisaremos configurar e testar a integração real para garantir que os pagamentos confirmados no Asaas disparem o cálculo de comissão automaticamente.
+
+---
+
+## 📝 LOG DE DESENVOLVIMENTO - 22/01/2026 (Sessão 2)
+
+### **Resumo da Sessão**
+
+Nesta sessão, concluímos as tarefas pendentes do sistema de comissões, melhorando a experiência do usuário e implementando a gestão completa de saques.
+
+#### **1. Formulário de Dados de Pagamento (Perfil) - MELHORADO**
+
+Substituímos o campo JSON confuso por campos individuais e amigáveis:
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| Tipo de Chave PIX | Dropdown | CPF, CNPJ, E-mail, Telefone, Chave Aleatória |
+| Chave PIX | Texto | Valor da chave (com placeholder dinâmico) |
+| Nome do Titular | Texto | Nome de quem vai receber (opcional) |
+| Banco | Texto | Banco onde a chave está cadastrada (opcional) |
+
+**Arquivos alterados:**
+- `essencial-clube-app/src/pages/Perfil.jsx` - Formulário com campos individuais
+- `essencial-clube-api/src/controllers/usersController.js` - Retorna `payout_info` no `getMe`
+
+#### **2. Gestão de Saques do Admin - IMPLEMENTADO**
+
+**Backend - Novos Endpoints:**
+
+| Endpoint | Método | Descrição |
+|----------|--------|-----------|
+| `/api/admin/payouts` | GET | Listar todas as solicitações de saque (filtro por status) |
+| `/api/admin/payouts/:id/approve` | PUT | Aprovar saque (marca comissões como 'paid') |
+| `/api/admin/payouts/:id/reject` | PUT | Rejeitar saque (libera comissões para nova solicitação) |
+
+**Frontend - Nova Página:**
+- `essencial-clube-app/src/pages/Admin/AdminPayouts.jsx`
+- Rota: `/admin/payouts`
+- Menu lateral: "Saques" com ícone de carteira
+
+**Funcionalidades:**
+- Tabela com todas as solicitações de saque
+- Filtro por status (Tabs: Todos, Pendentes, Aprovados, Rejeitados)
+- Modal de detalhes com dados PIX do parceiro
+- Botões de Aprovar/Rejeitar com confirmação
+- Campo opcional de motivo ao rejeitar
+
+#### **3. Correção de Bug - Valores Incorretos no Painel do Parceiro**
+
+**Problema:** O painel do parceiro mostrava R$ 19,96 ao invés de R$ 39,92.
+
+**Causa:** Registros faltantes na tabela `referrals` para alguns clientes indicados. A query do summary faz JOIN com `referrals`, então só contabilizava clientes com registro nessa tabela.
+
+**Solução:** Inseridos os registros faltantes na tabela `referrals` para sincronizar com `users.referred_by`.
+
+#### **4. Fluxo Completo Testado e Funcionando**
+
+1. ✅ Parceiro acessa `/perfil` e cadastra dados PIX (campos amigáveis)
+2. ✅ Parceiro acessa `/parceiro/comissoes` e vê resumo correto
+3. ✅ Parceiro clica "Solicitar Saque" → Solicitação criada
+4. ✅ Admin acessa `/admin/payouts` e vê solicitação pendente
+5. ✅ Admin aprova saque → Comissões marcadas como 'paid'
+6. ✅ Parceiro vê atualização: "Pendente: R$ 0,00 | Já Pago: R$ 39,92"
+
+### **Próximos Passos:**
+
+1. **Integração Real com Asaas:** Configurar e testar webhook real para que pagamentos confirmados disparem o cálculo de comissão automaticamente.
+2. **Notificações:** Implementar notificações (push/email) quando um saque for aprovado/rejeitado.
+3. **Histórico de Saques do Parceiro:** Adicionar visualização do histórico de saques na página `/parceiro/comissoes`.
+4. **Relatórios:** Dashboard do admin com métricas de comissões (total pago, pendente, por período).

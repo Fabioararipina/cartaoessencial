@@ -62,10 +62,11 @@ export default function Premios() {
   };
 
   const categorias = ['todos', ...new Set(rewards.map(r => r.categoria))];
-  const rewardsFiltrados = filtro === 'todos'
-    ? rewards
-    : rewards.filter(r => r.categoria === filtro);
-
+        const rewardsFiltrados = filtro === 'todos'
+          ? rewards
+          : rewards.filter(r => r.categoria === filtro);
+  
+        console.log('Rewards Filtrados:', rewardsFiltrados);
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" sx={{ height: '60vh' }}>
@@ -75,7 +76,7 @@ export default function Premios() {
   }
 
   return (
-    <Container maxWidth="md" sx={{ py: 3, px: { xs: 2, sm: 3 } }}>
+    <Container maxWidth="lg">
       {/* Header */}
       <Box sx={{
         display: 'flex',
@@ -178,44 +179,62 @@ export default function Premios() {
           </Typography>
         </Box>
       ) : (
-        <Grid container spacing={3}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', mx: -1.5 }}>
           {rewardsFiltrados.map((reward) => {
             const podeResgatar = saldo >= reward.points_required;
             const esgotado = reward.estoque === 0;
 
             return (
-              <Grid item xs={12} sm={6} lg={4} key={reward.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Box sx={{ p: 1.5, width: { xs: '100%', sm: '50%', md: '33.3333%' } }} key={reward.id}>
+                <Card sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: 420,
+                  border: '1px solid #eee',
+                  boxShadow: '0 2px 8px 0 rgba(0,0,0,0.08)',
+                  transition: 'all 0.3s ease-in-out',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: '0 4px 20px 0 rgba(0,0,0,0.12)',
+                  }
+                }}>
                   {reward.imagem_url && (
                     <CardMedia
                       component="img"
-                      height="140"
+                      sx={{
+                        width: '100%',
+                        height: 180, 
+                        objectFit: 'contain',
+                        backgroundColor: '#f0f0f0',
+                      }}
                       image={reward.imagem_url}
                       alt={reward.nome}
                     />
                   )}
-                  <CardContent sx={{ flexGrow: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
-                      <Box>
-                        <Typography variant="subtitle1" component="h3" fontWeight="medium">
-                          {reward.nome}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
-                          {reward.categoria}
-                        </Typography>
+                  <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+                        <Box>
+                          <Typography variant="subtitle1" component="h3" fontWeight="medium">
+                            {reward.nome}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
+                            {reward.categoria}
+                          </Typography>
+                        </Box>
+                        {esgotado && (
+                          <Chip label="Esgotado" color="error" size="small" />
+                        )}
                       </Box>
-                      {esgotado && (
-                        <Chip label="Esgotado" color="error" size="small" />
+
+                      {reward.descricao && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, display: '-webkit-box', overflow: 'hidden', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {reward.descricao}
+                        </Typography>
                       )}
                     </Box>
-
-                    {reward.descricao && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, display: '-webkit-box', overflow: 'hidden', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                        {reward.descricao}
-                      </Typography>
-                    )}
-
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                    
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 2, mt: 'auto', borderTop: '1px solid', borderColor: 'divider' }}>
                       <Box>
                         <Typography variant="h6" fontWeight="bold" color="primary.main">
                           {reward.points_required.toLocaleString()} pts
@@ -238,10 +257,10 @@ export default function Premios() {
                     </Box>
                   </CardContent>
                 </Card>
-              </Grid>
+              </Box>
             );
           })}
-                  </Grid>      )}
+        </Box>      )}
     </Container>
   );
 }

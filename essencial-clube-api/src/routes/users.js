@@ -8,4 +8,9 @@ const { verifyToken } = require('../middleware/auth');
 // @access  Private
 router.get('/me', verifyToken, usersController.getMe);
 
+// @route   PUT api/users/me
+// @desc    Atualizar perfil do usuário logado
+// @access  Private
+router.put('/me', verifyToken, usersController.updateMe);
+
 module.exports = router;

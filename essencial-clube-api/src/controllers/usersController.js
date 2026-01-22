@@ -9,7 +9,7 @@ const getMe = async (req, res) => {
         const userId = req.user.id;
 
         const result = await db.query(
-            'SELECT id, cpf, nome, email, telefone, tipo, status, nivel, total_indicacoes, created_at FROM users WHERE id = $1',
+            'SELECT id, cpf, nome, email, telefone, tipo, status, nivel, total_indicacoes, created_at, payout_info FROM users WHERE id = $1',
             [userId]
         );
 
@@ -25,6 +25,70 @@ const getMe = async (req, res) => {
     }
 };
 
+// @desc    Atualizar dados do usuário logado
+// @route   PUT /api/users/me
+// @access  Private
+const updateMe = async (req, res) => {
+    const userId = req.user.id;
+    const { nome, email, telefone, payout_info } = req.body;
+
+    const fields = [];
+    const params = [userId];
+    let paramIndex = 2;
+
+    if (nome !== undefined) {
+        fields.push(`nome = $${paramIndex++}`);
+        params.push(nome);
+    }
+    if (email !== undefined) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ error: 'Formato de email inválido.' });
+        }
+        fields.push(`email = $${paramIndex++}`);
+        params.push(email);
+    }
+    if (telefone !== undefined) {
+        fields.push(`telefone = $${paramIndex++}`);
+        params.push(telefone);
+    }
+    if (payout_info !== undefined) {
+        // Basic validation for payout_info if needed (e.g., must be a valid JSON object)
+        if (typeof payout_info !== 'object' && payout_info !== null) {
+            return res.status(400).json({ error: 'Formato de payout_info inválido. Deve ser um objeto JSON.' });
+        }
+        fields.push(`payout_info = $${paramIndex++}`);
+        params.push(payout_info);
+    }
+
+    if (fields.length === 0) {
+        return res.status(400).json({ error: 'Nenhum campo válido para atualização fornecido.' });
+    }
+
+    try {
+        const query = `
+            UPDATE users
+            SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING id, cpf, nome, email, telefone, tipo, status, nivel, total_indicacoes, created_at, payout_info
+        `;
+        const result = await db.query(query, params);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuário não encontrado.' });
+        }
+
+        res.json({
+            message: 'Dados do perfil atualizados com sucesso!',
+            user: result.rows[0]
+        });
+
+    } catch (err) {
+        console.error('Erro ao atualizar perfil do usuário:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor ao atualizar perfil.' });
+    }
+};
+
 module.exports = {
     getMe,
+    updateMe, // Exportar a nova função
 };

@@ -44,6 +44,7 @@ export const authService = {
 // ==================== USERS ====================
 export const userService = {
   getMe: () => api.get('/users/me'),
+  updateMe: (data) => api.put('/users/me', data), // NOVO: Atualizar perfil do usuário logado
 };
 
 // ==================== POINTS ====================
@@ -83,7 +84,13 @@ export const partnersService = {
   getById: (id) => api.get(`/partners/${id}`),
   checkClient: (cpf) => api.get(`/partners/check-client/${cpf}`),
   getMyTransactions: (params) => api.get('/partners/my-transactions', { params }),
+  getMyReferredClients: (params) => api.get('/partners/my-referred-clients', { params }), // NOVO: Relatório de comissão para parceiro
   awardPoints: (user_cpf, valor_compra) => api.post('/partners/transaction', { user_cpf, valor_compra }),
+  createCharge: (data) => api.post('/asaas/charges', data),
+  
+  // Payouts
+  requestPayout: () => api.post('/payouts/request'), // NOVO: Solicitar saque de comissões
+  getMyPayoutRequests: (params) => api.get('/payouts/my-requests', { params }), // NOVO: Obter minhas solicitações de saque
 };
 
 // ==================== ADMIN ====================
@@ -93,6 +100,22 @@ export const adminService = {
   updateUserStatus: (id, status) => api.put(`/admin/users/${id}/status`, { status }),
   getPointsReport: (params) => api.get('/admin/reports/points', { params }),
   createPartner: (data) => api.post('/admin/partners', data),
+  activateUserManually: (id) => api.post(`/admin/users/${id}/activate-manual`),
+  updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+
+  // Commission Configs
+  createCommissionConfig: (data) => api.post('/admin/commission-configs', data),
+  getCommissionConfigs: (params) => api.get('/admin/commission-configs', { params }),
+  getCommissionConfigById: (id) => api.get(`/admin/commission-configs/${id}`),
+  updateCommissionConfig: (id, data) => api.put(`/admin/commission-configs/${id}`, data),
+  deleteCommissionConfig: (id) => api.delete(`/admin/commission-configs/${id}`),
+  assignCommissionConfig: (userId, configId) => api.post(`/admin/users/${userId}/assign-commission-config`, { config_id: configId }),
+
+  // Payouts (Saques)
+  getPayouts: (status) => api.get('/admin/payouts', { params: status ? { status } : {} }),
+  approvePayoutRequest: (id) => api.put(`/admin/payouts/${id}/approve`),
+  rejectPayoutRequest: (id, motivo) => api.put(`/admin/payouts/${id}/reject`, { motivo }),
 };
 
 export default api;

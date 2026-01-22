@@ -5,6 +5,7 @@ import MainLayout from './components/Layout/MainLayout';
 
 // Páginas públicas
 import Login from './pages/Login';
+import Register from './pages/Register';
 
 // Páginas do Cliente
 import Dashboard from './pages/Dashboard';
@@ -16,12 +17,16 @@ import Perfil from './pages/Perfil';
 import ParceiroHome from './pages/Parceiro/ParceiroHome';
 import LancarPontos from './pages/Parceiro/LancarPontos';
 import Historico from './pages/Parceiro/Historico';
+import ParceiroComissoes from './pages/Parceiro/ParceiroComissoes'; // NOVO: Página de Comissões do Parceiro
 
 // Páginas do Admin
 import AdminDashboard from './pages/Admin/AdminDashboard';
 import AdminUsuarios from './pages/Admin/AdminUsuarios';
 import AdminResgates from './pages/Admin/AdminResgates';
 import AdminParceiros from './pages/Admin/AdminParceiros';
+import AdminPremios from './pages/Admin/AdminPremios';
+import AdminCommissionConfigs from './pages/Admin/AdminCommissionConfigs'; // NOVO: Página de Configurações de Comissão
+import AdminPayouts from './pages/Admin/AdminPayouts'; // NOVO: Página de Gestão de Saques
 
 function App() {
   return (
@@ -34,6 +39,15 @@ function App() {
             element={
               <PublicRoute>
                 <Login />
+              </PublicRoute>
+            }
+          />
+
+          <Route
+            path="/cadastro"
+            element={
+              <PublicRoute>
+                <Register />
               </PublicRoute>
             }
           />
@@ -67,6 +81,7 @@ function App() {
             <Route path="/parceiro" element={<ParceiroHome />} />
             <Route path="/parceiro/lancar" element={<LancarPontos />} />
             <Route path="/parceiro/historico" element={<Historico />} />
+            <Route path="/parceiro/comissoes" element={<ParceiroComissoes />} /> {/* NOVO: Rota para Comissões do Parceiro */}
           </Route>
 
           {/* Rotas do Admin */}
@@ -81,6 +96,9 @@ function App() {
             <Route path="/admin/usuarios" element={<AdminUsuarios />} />
             <Route path="/admin/resgates" element={<AdminResgates />} />
             <Route path="/admin/parceiros" element={<AdminParceiros />} />
+            <Route path="/admin/premios" element={<AdminPremios />} />
+            <Route path="/admin/commission-configs" element={<AdminCommissionConfigs />} /> {/* NOVO: Rota para Configurações de Comissão */}
+            <Route path="/admin/payouts" element={<AdminPayouts />} /> {/* NOVO: Rota para Gestão de Saques */}
           </Route>
 
           {/* Rota de indicação (pública) */}

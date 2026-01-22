@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { partnersService } from '../../services/api';
+import { partnersService, authService } from '../../services/api'; // authService foi adicionado aqui
 import {
   Container, Box, Typography, CircularProgress, Grid, Card, CardContent,
-  List, ListItem, ListItemText, Divider, Button, LinearProgress
+  List, ListItem, ListItemText, Divider, Button, LinearProgress,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, Alert, Select, MenuItem, InputLabel, FormControl
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -14,6 +15,7 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import StarIcon from '@mui/icons-material/Star';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import HistoryIcon from '@mui/icons-material/History';
+import PersonAddIcon from '@mui/icons-material/PersonAdd'; // Importar PersonAddIcon
 
 export default function ParceiroHome() {
   const { user } = useAuth();
@@ -24,6 +26,18 @@ export default function ParceiroHome() {
   });
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Estados para o diálogo de novo cliente
+  const [newClientDialog, setNewClientDialog] = useState(false);
+  const [newClientData, setNewClientData] = useState({
+    nome: '',
+    email: '',
+    cpf: '',
+    senha: '',
+    tipo: 'cliente', // Parceiros só podem cadastrar clientes
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
     loadData();
@@ -111,6 +125,33 @@ export default function ParceiroHome() {
     });
   };
 
+  const handleNewClientChange = (field) => (e) => {
+    setNewClientData({ ...newClientData, [field]: e.target.value });
+  };
+
+  const handleCreateClient = async () => {
+    setSaving(true);
+    setFormError('');
+
+    if (!newClientData.nome || !newClientData.email || !newClientData.senha || !newClientData.cpf) {
+      setFormError('Preencha todos os campos obrigatórios');
+      setSaving(false);
+      return;
+    }
+
+    try {
+      await authService.register(newClientData);
+      setNewClientDialog(false);
+      // Reset form
+      setNewClientData({ nome: '', email: '', cpf: '', senha: '', tipo: 'cliente' });
+      // Not reloading data as client registration doesn't affect partner dashboard directly
+    } catch (error) {
+      setFormError(error.response?.data?.error || 'Erro ao cadastrar cliente');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" sx={{ height: '60vh' }}>
@@ -131,19 +172,29 @@ export default function ParceiroHome() {
             Acompanhe o desempenho da sua parceria
           </Typography>
         </Box>
-        <Button
-          component={RouterLink}
-          to="/parceiro/lancar"
-          variant="contained"
-          startIcon={<AddIcon />}
-          sx={{
-            background: 'linear-gradient(45deg, #5287fb 30%, #74ca4f 90%)',
-            px: 3,
-            py: 1.5,
-          }}
-        >
-          Nova Transação
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            startIcon={<PersonAddIcon />}
+            onClick={() => setNewClientDialog(true)}
+            sx={{ px: 3, py: 1.5 }}
+          >
+            Cadastrar Cliente
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/parceiro/lancar"
+            variant="contained"
+            startIcon={<AddIcon />}
+            sx={{
+              background: 'linear-gradient(45deg, #5287fb 30%, #74ca4f 90%)',
+              px: 3,
+              py: 1.5,
+            }}
+          >
+            Nova Transação
+          </Button>
+        </Box>
       </Box>
 
       {/* KPIs Principais */}
@@ -392,6 +443,75 @@ export default function ParceiroHome() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Dialog Novo Cliente */}
+      <Dialog open={newClientDialog} onClose={() => setNewClientDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Cadastrar Novo Cliente</DialogTitle>
+        <DialogContent>
+          <Box component="form" sx={{ pt: 1 }}>
+            {formError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {formError}
+              </Alert>
+            )}
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  required
+                  label="Nome Completo"
+                  value={newClientData.nome}
+                  onChange={handleNewClientChange('nome')}
+                  margin="normal"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  required
+                  label="Email"
+                  type="email"
+                  value={newClientData.email}
+                  onChange={handleNewClientChange('email')}
+                  margin="normal"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  required
+                  label="CPF (apenas números)"
+                  value={newClientData.cpf}
+                  onChange={handleNewClientChange('cpf')}
+                  margin="normal"
+                  inputProps={{ maxLength: 11 }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  required
+                  label="Senha"
+                  type="password"
+                  value={newClientData.senha}
+                  onChange={handleNewClientChange('senha')}
+                  margin="normal"
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewClientDialog(false)}>Cancelar</Button>
+          <Button
+            onClick={handleCreateClient}
+            variant="contained"
+            disabled={saving}
+          >
+            {saving ? <CircularProgress size={20} /> : 'Cadastrar Cliente'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

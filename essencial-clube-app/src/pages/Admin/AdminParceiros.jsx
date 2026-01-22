@@ -130,9 +130,9 @@ export default function AdminParceiros() {
       )}
 
       {/* Lista de Parceiros */}
-      <Grid container spacing={3}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', mx: -1.5 }}>
         {partners.length === 0 ? (
-          <Grid item xs={12}>
+          <Box sx={{ width: '100%', p: 1.5 }}>
             <Card sx={{ p: 4, textAlign: 'center' }}>
               <StorefrontIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
               <Typography variant="body1" color="text.secondary">
@@ -147,11 +147,22 @@ export default function AdminParceiros() {
                 Cadastrar primeiro parceiro
               </Button>
             </Card>
-          </Grid>
+          </Box>
         ) : (
           partners.map((partner) => (
-            <Grid item xs={12} md={6} key={partner.id}>
-              <Card sx={{ height: '100%' }}>
+            <Box sx={{ p: 1.5, width: { xs: '100%', md: '50%' } }} key={partner.id}>
+              <Card sx={{ 
+                height: 250, 
+                display: 'flex', 
+                flexDirection: 'column',
+                border: '1px solid #eee',
+                boxShadow: '0 2px 8px 0 rgba(0,0,0,0.08)',
+                transition: 'all 0.3s ease-in-out',
+                '&:hover': {
+                  transform: 'translateY(-5px)',
+                  boxShadow: '0 4px 20px 0 rgba(0,0,0,0.12)',
+                }
+              }}>
                 <Box sx={{ p: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
                   <Avatar
                     sx={{
@@ -200,7 +211,7 @@ export default function AdminParceiros() {
 
                 <Divider />
 
-                <Box sx={{ p: 2 }}>
+                <Box sx={{ p: 2, mt: 'auto' }}>
                   {partner.endereco && (
                     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}>
                       <LocationOnIcon fontSize="small" color="action" />
@@ -220,10 +231,10 @@ export default function AdminParceiros() {
                   )}
                 </Box>
               </Card>
-            </Grid>
+            </Box>
           ))
         )}
-      </Grid>
+      </Box>
 
       {/* Dialog Novo Parceiro */}
       <Dialog open={newDialog} onClose={() => setNewDialog(false)} maxWidth="md" fullWidth>

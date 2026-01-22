@@ -12,6 +12,8 @@ const rewardsRoutes = require('./src/routes/rewards');
 const redemptionsRoutes = require('./src/routes/redemptions');
 const referralsRoutes = require('./src/routes/referrals');
 const adminRoutes = require('./src/routes/admin');
+const asaasRoutes = require('./src/routes/asaas'); // Importar rotas do Asaas
+const payoutsRoutes = require('./src/routes/payouts'); // NOVO: Importar rotas de Payouts
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -32,6 +34,8 @@ app.use('/api/rewards', rewardsRoutes);
 app.use('/api/redemptions', redemptionsRoutes);
 app.use('/api/referrals', referralsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/asaas', asaasRoutes); // Usar rotas do Asaas
+app.use('/api/payouts', payoutsRoutes); // NOVO: Usar rotas de Payouts
 
 app.get('/', (req, res) => {
   res.send('API Essencial Saúde no ar!');
