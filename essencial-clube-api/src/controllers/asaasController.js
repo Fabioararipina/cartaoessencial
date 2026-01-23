@@ -153,7 +153,22 @@ const handleWebhook = async (req, res) => {
                 const referrerId = activatedUser.referred_by;
                 const referredId = activatedUser.id; // The user who made the payment
                 const paymentValue = payment.value;
-                const paymentDate = new Date(payment.clientPaymentDate || payment.date); // Use a Date object
+
+                // Parsear data corretamente - usar confirmedDate ou paymentDate ou data atual
+                let paymentDate;
+                const rawDate = payment.confirmedDate || payment.clientPaymentDate || payment.paymentDate || payment.dateCreated;
+                if (rawDate) {
+                    paymentDate = new Date(rawDate);
+                    // Verificar se a data é válida (não é NaN e não é epoch/1970)
+                    if (isNaN(paymentDate.getTime()) || paymentDate.getFullYear() < 2000) {
+                        console.warn(`Invalid payment date from Asaas: ${rawDate}, using current date`);
+                        paymentDate = new Date();
+                    }
+                } else {
+                    console.warn('No payment date from Asaas, using current date');
+                    paymentDate = new Date();
+                }
+
                 const asaasPaymentId = payment.id; // Asaas payment ID
 
                 // Find the ID of the asaas_payments record in our DB using the asaasPaymentId
@@ -226,8 +241,120 @@ const handleWebhook = async (req, res) => {
     }
 };
 
+// @desc    Cria uma assinatura recorrente no Asaas (modelo de 12 meses)
+// @route   POST /api/asaas/subscriptions
+// @access  Private (Admin/Partner)
+const createAsaasSubscription = async (req, res) => {
+    const { userId, value, nextDueDate, billingType, description } = req.body;
+
+    if (!userId || !value) {
+        return res.status(400).json({ error: 'Dados incompletos para criar assinatura.' });
+    }
+
+    try {
+        let userResult = await db.query(
+            'SELECT id, nome, email, cpf, telefone, asaas_customer_id FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuário não encontrado.' });
+        }
+
+        let user = userResult.rows[0];
+        let asaasCustomerId = user.asaas_customer_id;
+
+        // Se o usuário não tem um ID Asaas, crie um agora
+        if (!asaasCustomerId) {
+            console.log(`Cliente Asaas não encontrado para o usuário ${userId}. Criando...`);
+            const asaasCustomer = await asaasService.createCustomer({
+                nome: user.nome,
+                email: user.email,
+                cpf: user.cpf,
+                telefone: user.telefone
+            });
+
+            asaasCustomerId = asaasCustomer.id;
+            await db.query(
+                'UPDATE users SET asaas_customer_id = $1 WHERE id = $2',
+                [asaasCustomerId, userId]
+            );
+        }
+
+        // Calcular data da primeira cobrança (hoje ou data informada)
+        const dueDate = nextDueDate || new Date().toISOString().split('T')[0];
+
+        const subscription = await asaasService.createSubscription({
+            asaas_customer_id: asaasCustomerId,
+            value,
+            nextDueDate: dueDate,
+            billingType: billingType || 'UNDEFINED', // Permite escolher PIX, Boleto ou Cartão
+            cycle: 'MONTHLY',
+            maxPayments: 12, // 12 meses
+            description: description || `Assinatura Essencial Saúde - ${user.nome}`,
+            externalReference: `subscription_user_${userId}_${Date.now()}`
+        });
+
+        // Salvar assinatura no nosso banco
+        await db.query(
+            `INSERT INTO asaas_subscriptions
+             (user_id, asaas_subscription_id, valor, ciclo, status, billing_type, next_due_date, max_payments)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                userId,
+                subscription.id,
+                subscription.value,
+                subscription.cycle,
+                subscription.status,
+                subscription.billingType,
+                subscription.nextDueDate,
+                12
+            ]
+        );
+
+        res.status(201).json({
+            message: 'Assinatura criada com sucesso!',
+            subscription: {
+                id: subscription.id,
+                value: subscription.value,
+                cycle: subscription.cycle,
+                nextDueDate: subscription.nextDueDate,
+                status: subscription.status
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao criar assinatura:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// @desc    Cancela uma assinatura no Asaas
+// @route   DELETE /api/asaas/subscriptions/:subscriptionId
+// @access  Private (Admin)
+const cancelAsaasSubscription = async (req, res) => {
+    const { subscriptionId } = req.params;
+
+    try {
+        await asaasService.cancelSubscription(subscriptionId);
+
+        await db.query(
+            `UPDATE asaas_subscriptions
+             SET status = 'INACTIVE', cancelled_at = NOW(), updated_at = NOW()
+             WHERE asaas_subscription_id = $1`,
+            [subscriptionId]
+        );
+
+        res.json({ message: 'Assinatura cancelada com sucesso.' });
+    } catch (error) {
+        console.error('Erro ao cancelar assinatura:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     createAsaasCustomer,
     createAsaasCharge,
-    handleWebhook
+    handleWebhook,
+    createAsaasSubscription,
+    cancelAsaasSubscription
 };

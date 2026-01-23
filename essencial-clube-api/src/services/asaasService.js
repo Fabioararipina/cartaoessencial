@@ -63,6 +63,52 @@ const asaasService = {
       console.error('Erro ao consultar status de pagamento no Asaas:', error.response?.data || error.message);
       throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao consultar pagamento Asaas.');
     }
+  },
+
+  // Criar assinatura recorrente (subscription)
+  createSubscription: async (subscriptionData) => {
+    try {
+      const response = await asaasApi.post('/subscriptions', {
+        customer: subscriptionData.asaas_customer_id,
+        billingType: subscriptionData.billingType || 'UNDEFINED', // UNDEFINED permite cliente escolher
+        value: subscriptionData.value,
+        nextDueDate: subscriptionData.nextDueDate, // Data da primeira cobrança (AAAA-MM-DD)
+        cycle: subscriptionData.cycle || 'MONTHLY', // WEEKLY, BIWEEKLY, MONTHLY, QUARTERLY, SEMIANNUALLY, YEARLY
+        description: subscriptionData.description,
+        maxPayments: subscriptionData.maxPayments || 12, // Número máximo de cobranças (12 meses)
+        externalReference: subscriptionData.externalReference,
+        // Configurações opcionais
+        // discount: { value: 0, dueDateLimitDays: 0 },
+        // fine: { value: 0 },
+        // interest: { value: 0 }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao criar assinatura no Asaas:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao criar assinatura Asaas.');
+    }
+  },
+
+  // Consultar assinatura
+  getSubscription: async (subscriptionId) => {
+    try {
+      const response = await asaasApi.get(`/subscriptions/${subscriptionId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao consultar assinatura no Asaas:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao consultar assinatura Asaas.');
+    }
+  },
+
+  // Cancelar assinatura
+  cancelSubscription: async (subscriptionId) => {
+    try {
+      const response = await asaasApi.delete(`/subscriptions/${subscriptionId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao cancelar assinatura no Asaas:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao cancelar assinatura Asaas.');
+    }
   }
 };
 

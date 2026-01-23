@@ -106,6 +106,16 @@ const commissionService = {
      * @returns {Promise<object|null>} An object { commission_value, commission_type, config_id } or null if no commission.
      */
     calculateAndSaveCommission: async (referrerId, referredId, paymentValue, paymentDate, paymentId) => {
+        // IDEMPOTÊNCIA: Verificar se já existe comissão para este payment_id
+        const existingCommission = await db.query(
+            `SELECT id FROM commissions WHERE payment_id = $1`,
+            [paymentId]
+        );
+        if (existingCommission.rows.length > 0) {
+            console.log(`Commission already exists for payment ${paymentId}. Skipping.`);
+            return null;
+        }
+
         const config = await commissionService.getActiveConfigForUser(referrerId, paymentDate);
 
         if (!config) {

@@ -26,4 +26,14 @@ router.post('/customers', asaasController.createAsaasCustomer);
 // @access  Private (Admin/Partner)
 router.post('/charges', asaasController.createAsaasCharge);
 
+// @route   POST /api/asaas/subscriptions
+// @desc    Cria uma assinatura recorrente no Asaas (12 meses)
+// @access  Private (Admin/Partner)
+router.post('/subscriptions', asaasController.createAsaasSubscription);
+
+// @route   DELETE /api/asaas/subscriptions/:subscriptionId
+// @desc    Cancela uma assinatura no Asaas
+// @access  Private (Admin)
+router.delete('/subscriptions/:subscriptionId', asaasController.cancelAsaasSubscription);
+
 module.exports = router;
