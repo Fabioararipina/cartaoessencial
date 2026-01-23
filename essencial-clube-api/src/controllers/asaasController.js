@@ -31,40 +31,63 @@ const createAsaasCustomer = async (req, res) => {
 // @route   POST /api/asaas/charges
 // @access  Private (Admin/Partner)
 const createAsaasCharge = async (req, res) => {
-    const { userId, value, dueDate, description } = req.body; // dueDate no formato AAAA-MM-DD
+    const { userId, value, dueDate, description } = req.body;
 
     if (!userId || !value || !dueDate) {
         return res.status(400).json({ error: 'Dados incompletos para criar cobrança Asaas.' });
     }
 
     try {
-        const userResult = await db.query('SELECT asaas_customer_id FROM users WHERE id = $1', [userId]);
-        if (userResult.rows.length === 0 || !userResult.rows[0].asaas_customer_id) {
-            return res.status(404).json({ error: 'Cliente Asaas não encontrado para este usuário.' });
+        let userResult = await db.query('SELECT id, nome, email, cpf, telefone, asaas_customer_id FROM users WHERE id = $1', [userId]);
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuário não encontrado no nosso sistema.' });
         }
-        const asaas_customer_id = userResult.rows[0].asaas_customer_id;
+
+        let user = userResult.rows[0];
+        let asaasCustomerId = user.asaas_customer_id;
+
+        // Se o usuário não tem um ID Asaas, crie um agora (on-demand)
+        if (!asaasCustomerId) {
+            console.log(`Cliente Asaas não encontrado para o usuário ${userId}. Criando um novo...`);
+            const asaasCustomer = await asaasService.createCustomer({
+                nome: user.nome,
+                email: user.email,
+                cpf: user.cpf,
+                telefone: user.telefone
+            });
+            
+            asaasCustomerId = asaasCustomer.id;
+
+            // Salva o novo ID no nosso banco de dados
+            await db.query(
+                'UPDATE users SET asaas_customer_id = $1 WHERE id = $2',
+                [asaasCustomerId, userId]
+            );
+            console.log(`Cliente Asaas ${asaasCustomerId} criado e salvo para o usuário ${userId}.`);
+        }
 
         const charge = await asaasService.createCharge({
-            asaas_customer_id,
+            asaas_customer_id: asaasCustomerId,
             value,
             dueDate,
             description,
-            externalReference: `user_${userId}_${Date.now()}` // Ref. externa para rastrear no nosso sistema
+            externalReference: `user_${userId}_${Date.now()}`
         });
 
-        // Opcional: Salvar informações da cobrança no nosso DB (asaas_payments)
+        // Opcional: Salvar informações da cobrança no nosso DB
         await db.query(
             `INSERT INTO asaas_payments (user_id, asaas_payment_id, valor, status, billing_type, due_date, invoice_url, pix_qrcode)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
             [
                 userId,
                 charge.id,
-                value,
-                charge.status,
+                charge.value,
+                charge.status.toLowerCase(), // Convertido para minúsculas
                 charge.billingType,
                 charge.dueDate,
                 charge.invoiceUrl,
-                charge.qrCodeText // ou charge.pixQrCode.encodedImage se for imagem
+                charge.pixQrCode ? charge.pixQrCode.payload : null
             ]
         );
 
@@ -189,9 +212,15 @@ const handleWebhook = async (req, res) => {
             */
             // FIM DA LÓGICA ANTIGA DE PONTOS
         }
-        // ... (existing code) ...
+
+        await client.query('COMMIT');
+        console.log(`Webhook Asaas processado com sucesso: ${event} para pagamento ${payment.id}`);
+        return res.status(200).json({ message: 'Webhook processado com sucesso.' });
+
     } catch (error) {
-        // ... (existing code) ...
+        await client.query('ROLLBACK');
+        console.error('Erro ao processar webhook Asaas:', error);
+        return res.status(500).json({ error: 'Erro interno ao processar webhook.' });
     } finally {
         client.release();
     }
