@@ -15,10 +15,11 @@ import QrCode2Icon from '@mui/icons-material/QrCode2';
 import HistoryIcon from '@mui/icons-material/History';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import StorefrontIcon from '@mui/icons-material/Storefront';
-import StarsIcon from '@mui/icons-material/Stars'; // NOVO: Importar StarsIcon que estava faltando
-import SettingsIcon from '@mui/icons-material/Settings'; // NOVO: Ícone para Configurações
-import AttachMoneyIcon from '@mui/icons-material/AttachMoney'; // NOVO: Ícone para Comissões
-import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet'; // NOVO: Ícone para Saques
+import StarsIcon from '@mui/icons-material/Stars';
+import SettingsIcon from '@mui/icons-material/Settings';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import ReceiptIcon from '@mui/icons-material/Receipt'; // Ícone para Boletos
 import LogoutIcon from '@mui/icons-material/Logout';
 import logo from '../../assets/logo.png'; // NOVO: Importar logo que estava faltando
 
@@ -37,9 +38,10 @@ const getNavItems = (tipo) => {
     resgates: <CardGiftcardIcon />,
     parceiros: <StorefrontIcon />,
     premiosAdmin: <StarsIcon />,
-    commissionConfigs: <SettingsIcon />, // NOVO: Ícone para Configurações de Comissão
-    comissoes: <AttachMoneyIcon />, // NOVO: Ícone para Comissões do Parceiro
-    saques: <AccountBalanceWalletIcon />, // NOVO: Ícone para Saques
+    commissionConfigs: <SettingsIcon />,
+    comissoes: <AttachMoneyIcon />,
+    saques: <AccountBalanceWalletIcon />,
+    boletos: <ReceiptIcon />, // Ícone para Boletos
   };
 
   const items = {
@@ -47,12 +49,14 @@ const getNavItems = (tipo) => {
       { to: '/dashboard', label: 'Início', icon: iconMap.home },
       { to: '/premios', label: 'Prêmios', icon: iconMap.premios },
       { to: '/indicar', label: 'Indicar', icon: iconMap.indicar },
+      { to: '/boletos', label: 'Meus Boletos', icon: iconMap.boletos },
     ],
     parceiro: [
       { to: '/parceiro', label: 'Início', icon: iconMap.home },
       { to: '/parceiro/lancar', label: 'Lançar Pontos', icon: iconMap.lancar },
       { to: '/parceiro/historico', label: 'Histórico', icon: iconMap.historico },
-      { to: '/parceiro/comissoes', label: 'Comissões', icon: iconMap.comissoes }, // NOVO: Link para Comissões do Parceiro
+      { to: '/parceiro/boletos', label: 'Boletos', icon: iconMap.boletos },
+      { to: '/parceiro/comissoes', label: 'Comissões', icon: iconMap.comissoes },
     ],
     admin: [
       { to: '/admin', label: 'Dashboard', icon: iconMap.dashboard },
@@ -60,8 +64,10 @@ const getNavItems = (tipo) => {
       { to: '/admin/resgates', label: 'Resgates', icon: iconMap.resgates },
       { to: '/admin/parceiros', label: 'Parceiros', icon: iconMap.parceiros },
       { to: '/admin/premios', label: 'Prêmios', icon: iconMap.premiosAdmin },
+      { to: '/admin/boletos', label: 'Boletos', icon: iconMap.boletos },
       { to: '/admin/commission-configs', label: 'Comissões', icon: iconMap.commissionConfigs },
-      { to: '/admin/payouts', label: 'Saques', icon: iconMap.saques }, // NOVO: Link para Gestão de Saques
+      { to: '/admin/payouts', label: 'Saques', icon: iconMap.saques },
+      { to: '/admin/system-configs', label: 'Configurações', icon: iconMap.commissionConfigs },
     ],
   };
 

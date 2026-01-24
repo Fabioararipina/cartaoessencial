@@ -7,55 +7,58 @@ async function createSeeds() {
   console.log('Iniciando a criação de seeds...');
 
   try {
-    // Inicia a transação
     await db.query('BEGIN');
-
-    // 1. Criar usuário Admin
     const saltRounds = 10;
+
+    // --- 1. Criar Usuário Admin ---
     const adminPassword = 'admin123';
-    const hashedPassword = await bcrypt.hash(adminPassword, saltRounds);
-
-    const adminResult = await db.query(
-      `INSERT INTO users (cpf, nome, email, senha_hash, tipo, status, nivel)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (email) DO NOTHING
-       RETURNING id`,
-      ['00000000000', 'Admin Geral', 'admin@essencialclube.com.br', hashedPassword, 'admin', 'ativo', 'diamante']
+    const adminHashedPassword = await bcrypt.hash(adminPassword, saltRounds);
+    await db.query(
+        `INSERT INTO users (cpf, nome, email, senha_hash, tipo, status, nivel)
+         VALUES ('00000000000', 'Admin Geral', 'admin@essencialclube.com.br', $1, 'admin', 'ativo', 'diamante')
+         ON CONFLICT ON CONSTRAINT users_cpf_key DO UPDATE SET senha_hash = $1, status = 'ativo', email = 'admin@essencialclube.com.br'`, [adminHashedPassword]
     );
+    console.log('Usuário Admin criado/atualizado.');
 
-    let adminId;
-    if (adminResult.rows.length > 0) {
-      adminId = adminResult.rows[0].id;
-      console.log('Usuário Admin criado com ID:', adminId);
-    } else {
-      const existingAdmin = await db.query('SELECT id FROM users WHERE email = $1', ['admin@essencialclube.com.br']);
-      adminId = existingAdmin.rows[0].id;
-      console.log('Usuário Admin já existe com ID:', adminId);
-    }
+    // --- 2. Criar Usuário Parceiro ---
+    const partnerPassword = 'parceiro123';
+    const partnerHashedPassword = await bcrypt.hash(partnerPassword, saltRounds);
+    const partnerResult = await db.query(
+        `INSERT INTO users (cpf, nome, email, senha_hash, tipo, status, nivel)
+         VALUES ('11111111111', 'Parceiro Teste', 'parceiro@email.com', $1, 'parceiro', 'ativo', 'bronze')
+         ON CONFLICT ON CONSTRAINT users_cpf_key DO UPDATE SET senha_hash = $1, status = 'ativo', email = 'parceiro@email.com'
+         RETURNING id`, [partnerHashedPassword]
+    );
+    const partnerUserId = partnerResult.rows[0].id;
+    console.log('Usuário Parceiro criado/atualizado com ID:', partnerUserId);
+    
+    // Associar dados de parceiro na tabela 'partners'
+    await db.query(
+        `INSERT INTO partners (user_id, nome_estabelecimento, cnpj, categoria, endereco, desconto_oferecido)
+         VALUES ($1, 'Supermercado Parceiro', '12345678000199', 'Supermercado', 'Rua Parceira, 456', '10%')
+         ON CONFLICT (user_id) DO NOTHING`,
+        [partnerUserId]
+    );
+    console.log('Dados do estabelecimento parceiro criados/atualizados.');
 
-
-    // 2. Criar Parceiro de Exemplo
-    if (adminId) {
-        await db.query(
-            `INSERT INTO partners (user_id, nome_estabelecimento, cnpj, categoria, endereco, desconto_oferecido)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT DO NOTHING`,
-            [adminId, 'Supermercado Exemplo', '12345678000199', 'Supermercado', 'Rua Exemplo, 123', '5%']
-        );
-        console.log('Parceiro de exemplo criado.');
-    }
-
-
-    // 3. Criar Prêmio de Exemplo
+    // --- 3. Criar Usuário Cliente ---
+    const clientPassword = 'cliente123';
+    const clientHashedPassword = await bcrypt.hash(clientPassword, saltRounds);
+    await db.query(
+        `INSERT INTO users (cpf, nome, email, senha_hash, tipo, status, nivel, referred_by)
+         VALUES ('11122233344', 'Cliente Teste', 'cliente@email.com', $1, 'cliente', 'ativo', 'bronze', $2)
+         ON CONFLICT ON CONSTRAINT users_cpf_key DO UPDATE SET senha_hash = $1, status = 'ativo', email = 'cliente@email.com'`, [clientHashedPassword, partnerUserId]
+    );
+    console.log('Usuário Cliente criado/atualizado.');
+    
+    // --- 4. Criar Prêmio de Exemplo ---
     await db.query(
       `INSERT INTO rewards (nome, descricao, points_required, valor_equivalente, categoria, ativo)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT DO NOTHING`,
-      ['Vale-Compras R$20', 'Vale-compras para usar em qualquer parceiro da rede.', 200, 20.00, 'vale', true]
+       VALUES ('Vale-Compras R$20', 'Vale-compras para usar em qualquer parceiro da rede.', 200, 20.00, 'vale', true)
+       ON CONFLICT (nome) DO NOTHING`
     );
-    console.log('Prêmio de exemplo criado.');
+    console.log('Prêmio de exemplo criado/ignorado.');
 
-    // Finaliza a transação
     await db.query('COMMIT');
     console.log('Seeds criados com sucesso!');
 

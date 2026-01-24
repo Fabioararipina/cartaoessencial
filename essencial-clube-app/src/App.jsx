@@ -12,12 +12,13 @@ import Dashboard from './pages/Dashboard';
 import Premios from './pages/Premios';
 import Indicar from './pages/Indicar';
 import Perfil from './pages/Perfil';
+import MeusBoletos from './pages/MeusBoletos';
 
 // Páginas do Parceiro
 import ParceiroHome from './pages/Parceiro/ParceiroHome';
 import LancarPontos from './pages/Parceiro/LancarPontos';
 import Historico from './pages/Parceiro/Historico';
-import ParceiroComissoes from './pages/Parceiro/ParceiroComissoes'; // NOVO: Página de Comissões do Parceiro
+import ParceiroComissoes from './pages/Parceiro/ParceiroComissoes';
 
 // Páginas do Admin
 import AdminDashboard from './pages/Admin/AdminDashboard';
@@ -25,8 +26,10 @@ import AdminUsuarios from './pages/Admin/AdminUsuarios';
 import AdminResgates from './pages/Admin/AdminResgates';
 import AdminParceiros from './pages/Admin/AdminParceiros';
 import AdminPremios from './pages/Admin/AdminPremios';
-import AdminCommissionConfigs from './pages/Admin/AdminCommissionConfigs'; // NOVO: Página de Configurações de Comissão
-import AdminPayouts from './pages/Admin/AdminPayouts'; // NOVO: Página de Gestão de Saques
+import AdminCommissionConfigs from './pages/Admin/AdminCommissionConfigs';
+import AdminPayouts from './pages/Admin/AdminPayouts';
+import AdminSystemConfigs from './pages/Admin/AdminSystemConfigs';
+import AdminBoletos from './pages/Admin/AdminBoletos';
 
 function App() {
   return (
@@ -67,6 +70,7 @@ function App() {
             <Route path="/premios" element={<Premios />} />
             <Route path="/indicar" element={<Indicar />} />
             <Route path="/perfil" element={<Perfil />} />
+            <Route path="/boletos" element={<MeusBoletos />} />
             <Route path="/extrato" element={<Dashboard />} /> {/* TODO: criar página */}
           </Route>
 
@@ -81,7 +85,8 @@ function App() {
             <Route path="/parceiro" element={<ParceiroHome />} />
             <Route path="/parceiro/lancar" element={<LancarPontos />} />
             <Route path="/parceiro/historico" element={<Historico />} />
-            <Route path="/parceiro/comissoes" element={<ParceiroComissoes />} /> {/* NOVO: Rota para Comissões do Parceiro */}
+            <Route path="/parceiro/boletos" element={<AdminBoletos />} />
+            <Route path="/parceiro/comissoes" element={<ParceiroComissoes />} />
           </Route>
 
           {/* Rotas do Admin */}
@@ -97,8 +102,10 @@ function App() {
             <Route path="/admin/resgates" element={<AdminResgates />} />
             <Route path="/admin/parceiros" element={<AdminParceiros />} />
             <Route path="/admin/premios" element={<AdminPremios />} />
-            <Route path="/admin/commission-configs" element={<AdminCommissionConfigs />} /> {/* NOVO: Rota para Configurações de Comissão */}
-            <Route path="/admin/payouts" element={<AdminPayouts />} /> {/* NOVO: Rota para Gestão de Saques */}
+            <Route path="/admin/commission-configs" element={<AdminCommissionConfigs />} />
+            <Route path="/admin/payouts" element={<AdminPayouts />} />
+            <Route path="/admin/system-configs" element={<AdminSystemConfigs />} />
+            <Route path="/admin/boletos" element={<AdminBoletos />} />
           </Route>
 
           {/* Rota de indicação (pública) */}

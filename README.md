@@ -858,7 +858,7 @@ essencial-clube-app/
 **Autenticação:**
 - [ ] Cadastro novo cliente
 - [ ] Login com credenciais válidas
-- [ ] Login com credenciais inválidas
+- [ [ ] Login com credenciais inválidas
 - [ ] Refresh token
 
 **Pontos:**
@@ -1212,30 +1212,6 @@ node -e "require('./src/config/database').query('SELECT NOW()').then(r => consol
 
 ---
 
-### **Comandos úteis para diagnóstico**
-
-```bash
-# Ver processos na porta 3000 (Windows)
-netstat -ano | findstr :3000
-
-# Ver processos Node rodando (Windows PowerShell)
-Get-Process node
-
-# Matar todos os processos Node (Windows PowerShell)
-Stop-Process -Name node -Force
-
-# Testar login via terminal
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"cliente@email.com","senha":"cliente123"}'
-
-# Verificar conexão com PostgreSQL
-cd essencial-clube-api
-node -e "require('./src/config/database').query('SELECT NOW()').then(r => console.log('OK:', r.rows[0])).catch(e => console.error('ERRO:', e.message))"
-```
-
----
-
 ### **Prevenção**
 
 1. **Sempre parar o servidor antes de reiniciar** (Ctrl+C no terminal)
@@ -1312,9 +1288,12 @@ Implementamos um sistema de ponta a ponta para que parceiros possam receber comi
 
 ### **Próximos Passos (Plano para 23/01/2026):**
 
-1.  ~~**Melhorar a Entrada de Dados de Pagamento:** Substituir o campo de texto JSON na página de Perfil por campos individuais e mais amigáveis (ex: "Chave PIX", "Tipo de Chave").~~ ✅ CONCLUÍDO
-2.  ~~**Testar o Fluxo de Solicitação de Saque:** Realizar o teste completo de um parceiro clicando em "Solicitar Saque" e verificar se o registro é criado corretamente no backend.~~ ✅ CONCLUÍDO
-3.  ~~**Implementar a Gestão de Saques do Admin:**~~ ✅ CONCLUÍDO
+1.  ~~**Melhorar a Entrada de Dados de Pagamento:** Substituir o campo de texto JSON na página de Perfil por campos individuais e mais amigáveis (ex: "Chave PIX", "Tipo de Chave").~~
+    ✅ CONCLUÍDO
+2.  ~~**Testar o Fluxo de Solicitação de Saque:** Realizar o teste completo de um parceiro clicando em "Solicitar Saque" e verificar se o registro é criado corretamente no backend.~~
+    ✅ CONCLUÍDO
+3.  ~~**Implementar a Gestão de Saques do Admin:**~~
+    ✅ CONCLUÍDO
     *   ~~Criar uma nova página no painel do Admin (`/admin/payouts`) para listar as solicitações de saque pendentes.~~
     *   ~~Implementar a lógica (backend e frontend) para o admin "Aprovar" um saque, o que mudaria o status das comissões relacionadas para 'paid'.~~
 4.  **Depurar o Webhook Real do Asaas:** A funcionalidade de comissão agora depende criticamente do webhook. Precisaremos configurar e testar a integração real para garantir que os pagamentos confirmados no Asaas disparem o cálculo de comissão automaticamente.
@@ -1387,3 +1366,82 @@ Substituímos o campo JSON confuso por campos individuais e amigáveis:
 2. **Notificações:** Implementar notificações (push/email) quando um saque for aprovado/rejeitado.
 3. **Histórico de Saques do Parceiro:** Adicionar visualização do histórico de saques na página `/parceiro/comissoes`.
 4. **Relatórios:** Dashboard do admin com métricas de comissões (total pago, pendente, por período).
+
+---
+
+## 📝 LOG DE DESENVOLVIMENTO - 23/01/2026
+
+### **Resumo da Sessão**
+
+Nesta sessão, focamos em uma depuração profunda e na implementação de uma nova funcionalidade crítica de negócio. Começamos investigando por que novas assinaturas não estavam sendo criadas corretamente e, após resolver isso, implementamos o fluxo completo de cancelamento de assinatura com multa configurável.
+
+#### **1. Correção do Fluxo de Criação de Assinatura (Deep Dive)**
+
+*   **Problema Inicial:** O sistema estava criando uma cobrança única em vez de uma assinatura de 12 meses.
+*   **Investigação:**
+    1.  A análise inicial mostrou que o frontend (`LancarPontos.jsx`) parecia estar chamando a função correta (`createSubscription`).
+    2.  No entanto, o log de rede do navegador do usuário indicava uma chamada para o endpoint de cobrança única (`/charges`), uma contradição direta.
+    3.  A causa raiz foi descoberta na configuração do servidor Nginx, que estava servindo uma versão antiga do frontend a partir de um diretório incorreto (`/frontend` em vez de `/essencial-clube-app/dist`).
+    4.  Após corrigir o Nginx, um segundo problema surgiu: a API passou a ser chamada em `localhost`, causando erro de conexão. Isso foi devido à ausência de um arquivo `.env.production` durante o processo de `build` no servidor.
+    5.  Com a criação do `.env.production` e um novo `build`, o fluxo de criação de assinatura foi corrigido, mas o webhook de confirmação de pagamento falhou.
+    6.  O log (`violates check constraint "asaas_payments_billing_type_check"`) revelou o problema final: a assinatura era criada com `billingType: 'UNDEFINED'`, um valor que o banco de dados não aceitava.
+*   **Solução Final:**
+    *   Corrigimos o `asaasController.js` para que, ao criar a assinatura, ele salve a primeira cobrança no banco de dados com `billing_type = NULL` se o valor for 'UNDEFINED', evitando a falha.
+    *   O fluxo completo (Criação de Assinatura -> Pagamento -> Webhook -> Ativação de Cliente -> Cálculo de Comissão) foi **validado e confirmado como funcional**.
+
+#### **2. Implementação do Cancelamento de Assinatura com Multa**
+
+Implementamos um sistema de ponta a ponta para permitir que um administrador cancele a assinatura de um cliente e, opcionalmente, aplique uma multa configurável.
+
+1.  **Banco de Dados:**
+    *   Criamos um novo script SQL (`create_system_configs_table.sql`) que adiciona a tabela `system_configs`.
+    *   Esta tabela armazena configurações globais, incluindo a `CANCELLATION_FEE_PERCENTAGE` (multa de cancelamento), com um valor padrão de '0'.
+
+2.  **Backend:**
+    *   **API de Configuração:** Criamos uma API completa (`GET` e `PUT` em `/api/admin/system-configs`) para o Admin gerenciar as configurações do sistema.
+    *   **Lógica de Cancelamento com Multa:** Modificamos a função `cancelAsaasSubscription` para:
+        1.  Ler o percentual da multa do banco de dados.
+        2.  Se a multa for > 0, buscar os detalhes da assinatura no Asaas.
+        3.  Calcular o valor da multa e criar uma nova cobrança avulsa para o cliente no Asaas.
+        4.  Prosseguir com o cancelamento da assinatura.
+    *   **API de Consulta:** Criamos o endpoint `GET /api/users/:id/subscriptions` para permitir que o frontend busque as assinaturas de um usuário específico.
+
+3.  **Frontend:**
+    *   **Página de Configuração:** Criamos a página "Configurações do Sistema" (`/admin/system-configs`), acessível pelo menu do admin, onde é possível visualizar e definir o percentual da multa de cancelamento.
+    *   **Gestão de Assinaturas do Usuário:** Na página "Gestão de Usuários" (`/admin/usuarios`), adicionamos:
+        *   Um novo ícone de "cancelar cartão" na coluna de ações de cada cliente.
+        *   Um modal (pop-up) que, ao clicar no ícone, lista as assinaturas ativas do cliente.
+        *   Um botão "Cancelar" dentro do modal que executa a função de cancelamento, com uma janela de confirmação.
+
+### **Próximos Passos (Próxima Sessão)**
+
+1.  **Deploy das Alterações:** O usuário precisa seguir as instruções no arquivo `proximos_passos.txt` para colocar todas as correções e a nova funcionalidade de cancelamento em produção.
+2.  **Teste em Produção:** Validar o fluxo de configuração da multa e cancelamento de uma assinatura.
+3.  **Iniciar Implementação do Carnê:** Com o sistema de assinaturas estável e completo, podemos iniciar o desenvolvimento da funcionalidade de "Carnê" (Parcelamento), conforme o plano já discutido.
+
+---
+
+## 📝 LOG DE DEPURAÇÃO - 24/01/2026
+
+### **Problema: A interface do frontend não atualiza**
+
+Após implementar um novo fluxo de cadastro de usuário em várias etapas no arquivo `Register.jsx`, a interface exibida no navegador continua sendo a antiga, de etapa única, causando a criação automática de assinaturas.
+
+**Diagnóstico e Verificações Realizadas:**
+
+1.  **Código Fonte no Servidor:** Verificamos o conteúdo do arquivo `/var/www/cartaoessencial/essencial-clube-app/src/pages/Register.jsx` no servidor. **Confirmado:** O arquivo contém o novo código com a lógica de múltiplas etapas.
+2.  **Processo de Build:** O comando `npm run build` foi executado com sucesso na pasta `/var/www/cartaoessencial/essencial-clube-app`, gerando novos arquivos na pasta `dist` com timestamps recentes.
+3.  **Configuração do Nginx:** Verificamos o arquivo `/etc/nginx/sites-available/cartaoessencial`. **Confirmado:** A diretiva `root` aponta corretamente para a pasta `/var/www/cartaoessencial/essencial-clube-app/dist`. Não há regras de cache agressivas configuradas no Nginx.
+4.  **Artefatos do Build:** Verificamos o conteúdo do `index.html` e os nomes dos arquivos na pasta `dist`. **Confirmado:** O `index.html` aponta para os arquivos JavaScript e CSS recém-gerados pelo processo de build.
+5.  **Cache do Navegador:** O teste foi realizado em janela anônima, o que minimiza a chance de ser um problema de cache do navegador.
+
+### **Conclusão e Próximo Passo**
+
+Todas as verificações no servidor (código-fonte, build, configuração do Nginx) indicam que ele está pronto para servir a nova versão da aplicação.
+
+A causa mais provável para a exibição da interface antiga é uma **camada de cache externa**, como um serviço de **CDN (ex: Cloudflare)**, que está servindo uma cópia antiga do site e não está sendo atualizada.
+
+**Ação Pendente para Amanhã:**
+
+*   Verificar se existe um serviço de CDN (como Cloudflare) na frente do domínio `cartao.primeatende.com.br`.
+*   Se existir, acessar seu painel e executar a limpeza de cache ("Purge Cache").

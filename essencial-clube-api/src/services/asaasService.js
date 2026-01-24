@@ -109,7 +109,71 @@ const asaasService = {
       console.error('Erro ao cancelar assinatura no Asaas:', error.response?.data || error.message);
       throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao cancelar assinatura Asaas.');
     }
+  },
+
+  // Buscar cobranças de uma assinatura
+  getSubscriptionPayments: async (subscriptionId) => {
+    try {
+      const response = await asaasApi.get(`/subscriptions/${subscriptionId}/payments`);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar cobranças da assinatura no Asaas:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao buscar cobranças da assinatura.');
+    }
+  },
+
+  // Buscar QR Code PIX de um pagamento
+  getPixQrCode: async (paymentId) => {
+    try {
+      const response = await asaasApi.get(`/payments/${paymentId}/pixQrCode`);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar QR Code PIX:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao buscar QR Code PIX.');
+    }
+  },
+
+  // Deletar uma cobrança
+  deletePayment: async (paymentId) => {
+    try {
+      const response = await asaasApi.delete(`/payments/${paymentId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Erro ao deletar cobrança ${paymentId} no Asaas:`, error.response?.data || error.message);
+      // Não lançar erro aqui para não interromper o processo de cancelamento se uma cobrança falhar
+      return { deleted: false, error: error.message };
+    }
+  },
+
+  // Criar carnê (parcelamento via endpoint /payments)
+  // Documentação Asaas: O carnê é criado usando o endpoint de pagamentos com parâmetros de parcelamento
+  createInstallment: async (installmentData) => {
+    try {
+      // Calcular valor total (installmentValue * installmentCount)
+      const totalValue = installmentData.installmentValue * installmentData.installmentCount;
+
+      const payload = {
+        customer: installmentData.asaas_customer_id,
+        billingType: installmentData.billingType || 'BOLETO',
+        value: totalValue, // Valor TOTAL do carnê
+        dueDate: installmentData.firstDueDate, // Data do primeiro vencimento (campo correto)
+        installmentCount: installmentData.installmentCount,
+        installmentValue: installmentData.installmentValue,
+        description: installmentData.description,
+        externalReference: installmentData.externalReference,
+      };
+      console.log('--- ENVIANDO PAYLOAD PARA CRIAR CARNÊ NO ASAAS ---', payload);
+      // Carnê é criado via /payments com parâmetros de parcelamento, NÃO /installments
+      const response = await asaasApi.post('/payments', payload);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao criar carnê no Asaas:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.errors?.[0]?.description || 'Erro ao criar carnê Asaas.');
+    }
   }
 };
+
+// Exportar também a instância do axios para uso direto quando necessário
+asaasService.asaasApi = asaasApi;
 
 module.exports = asaasService;

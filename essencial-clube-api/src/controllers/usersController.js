@@ -1,5 +1,25 @@
 const db = require('../config/database');
 
+// @desc    Obter assinaturas de um usuário específico
+// @route   GET /api/users/:id/subscriptions
+// @access  Private (Admin)
+const getUserSubscriptions = async (req, res) => {
+    const { id: userId } = req.params;
+
+    try {
+        const result = await db.query(
+            "SELECT * FROM asaas_subscriptions WHERE user_id = $1 ORDER BY created_at DESC",
+            [userId]
+        );
+        
+        res.json(result.rows);
+
+    } catch (err) {
+        console.error(`Erro ao buscar assinaturas para o usuário ${userId}:`, err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    }
+};
+
 // @desc    Obter dados do usuário logado
 // @route   GET /api/users/me
 // @access  Private
@@ -88,7 +108,55 @@ const updateMe = async (req, res) => {
     }
 };
 
+// @desc    Obter boletos/pagamentos do usuário logado
+// @route   GET /api/users/me/payments
+// @access  Private
+const getMyPayments = async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const result = await db.query(`
+            SELECT
+                id,
+                asaas_payment_id,
+                valor,
+                status,
+                billing_type,
+                due_date,
+                payment_date,
+                invoice_url,
+                created_at
+            FROM asaas_payments
+            WHERE user_id = $1
+            ORDER BY due_date ASC
+        `, [userId]);
+
+        // Agrupar por status para facilitar visualização
+        const pending = result.rows.filter(p => p.status === 'pending');
+        const paid = result.rows.filter(p => ['received', 'confirmed'].includes(p.status));
+        const overdue = result.rows.filter(p => p.status === 'overdue');
+
+        res.json({
+            payments: result.rows,
+            summary: {
+                total: result.rows.length,
+                pending: pending.length,
+                paid: paid.length,
+                overdue: overdue.length,
+                totalPending: pending.reduce((sum, p) => sum + parseFloat(p.valor), 0),
+                totalPaid: paid.reduce((sum, p) => sum + parseFloat(p.valor), 0)
+            }
+        });
+
+    } catch (err) {
+        console.error('Erro ao buscar boletos do usuário:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    }
+};
+
 module.exports = {
     getMe,
-    updateMe, // Exportar a nova função
+    updateMe,
+    getUserSubscriptions,
+    getMyPayments,
 };

@@ -20,7 +20,7 @@ const port = process.env.PORT || 3000;
 
 // Middlewares
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'https://cartao.primeatende.com.br'],
   credentials: true
 }));
 app.use(express.json()); // Para parsear JSON

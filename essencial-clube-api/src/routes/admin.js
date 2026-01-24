@@ -3,11 +3,15 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const redemptionsController = require('../controllers/redemptionsController');
 const adminCommissionConfigsRouter = require('./admin/commissionConfigs'); // Import the new commission configs router
+const systemConfigsRouter = require('./admin/systemConfigs'); // Import the new system configs router
 const { verifyToken, isAdmin } = require('../middleware/auth');
 
 // Todas as rotas de admin requerem autenticação + admin
 router.use(verifyToken);
 router.use(isAdmin);
+
+// System Configurations routes
+router.use('/system-configs', systemConfigsRouter);
 
 // Commission Configurations routes
 router.use('/commission-configs', adminCommissionConfigsRouter);
