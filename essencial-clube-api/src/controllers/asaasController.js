@@ -808,6 +808,25 @@ const syncUserPayments = async (req, res) => {
 
         console.log(`Sincronizando ${asaasPayments.length} pagamentos do Asaas para o usuário ${userId}`);
 
+        // NOVO: Criar um Set com todos os IDs de pagamento vindos do Asaas
+        const asaasPaymentIds = new Set(asaasPayments.map(p => p.id));
+
+        // NOVO: Buscar todos os pagamentos locais deste usuário
+        const localPaymentsResult = await db.query(
+            'SELECT id, asaas_payment_id FROM asaas_payments WHERE user_id = $1',
+            [userId]
+        );
+
+        // NOVO: Deletar pagamentos locais que não existem mais no Asaas (órfãos)
+        let deleted = 0;
+        for (const localPayment of localPaymentsResult.rows) {
+            if (!asaasPaymentIds.has(localPayment.asaas_payment_id)) {
+                console.log(`Deletando pagamento órfão: ${localPayment.asaas_payment_id} (ID local: ${localPayment.id})`);
+                await db.query('DELETE FROM asaas_payments WHERE id = $1', [localPayment.id]);
+                deleted++;
+            }
+        }
+
         let inserted = 0;
         let updated = 0;
 
@@ -862,7 +881,8 @@ const syncUserPayments = async (req, res) => {
             userName: user.nome,
             totalFromAsaas: asaasPayments.length,
             inserted,
-            updated
+            updated,
+            deleted // NOVO: Incluir contagem de deletados na resposta
         });
 
     } catch (error) {
@@ -892,21 +912,33 @@ const deletePayment = async (req, res) => {
 
         // 2. Se tiver ID do Asaas e status pendente, deletar do Asaas primeiro
         if (payment.asaas_payment_id && payment.status === 'pending') {
+            console.log(`[deletePayment] Tentando deletar boleto ${payment.asaas_payment_id} no Asaas...`);
             try {
-                await asaasService.deletePayment(payment.asaas_payment_id);
+                const response = await asaasService.deletePayment(payment.asaas_payment_id);
+                console.log(`[deletePayment] Boleto ${payment.asaas_payment_id} deletado com sucesso do Asaas.`, response);
             } catch (asaasError) {
-                console.warn('Erro ao deletar do Asaas (pode já ter sido removido):', asaasError.message);
-                // Continua mesmo se falhar no Asaas
+                console.error(
+                    `[deletePayment] Erro CRÍTICO ao deletar boleto ${payment.asaas_payment_id} do Asaas:`,
+                    asaasError.message,
+                    asaasError.response?.data
+                );
+
+                // Retornar erro para o usuário e NÃO continuar
+                return res.status(502).json({
+                    error: 'Erro ao se comunicar com o Asaas para deletar o pagamento. O boleto NÃO foi deletado.',
+                    details: asaasError.message
+                });
             }
         }
 
-        // 3. Deletar do nosso banco
+        // 3. Deletar do nosso banco SÓ DEPOIS de ter certeza que foi deletado do Asaas
         await db.query('DELETE FROM asaas_payments WHERE id = $1', [paymentId]);
+        console.log(`[deletePayment] Pagamento ${paymentId} deletado do banco de dados local.`);
 
         res.json({ message: 'Pagamento deletado com sucesso.' });
 
     } catch (error) {
-        console.error('Erro ao deletar pagamento:', error);
+        console.error('[deletePayment] Erro geral ao deletar pagamento:', error);
         res.status(500).json({ error: 'Erro ao deletar pagamento.' });
     }
 };
