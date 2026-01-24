@@ -136,6 +136,7 @@ export const adminService = {
   getUserPayments: (userId) => api.get(`/asaas/payments/${userId}`),
   searchUserPayments: (query) => api.get(`/asaas/payments-search`, { params: { q: query } }),
   syncUserPayments: (userId) => api.post(`/asaas/sync-payments/${userId}`),
+  deletePayment: (paymentId) => api.delete(`/asaas/payments/${paymentId}`),
 };
 
 export default api;

@@ -133,12 +133,37 @@ const handleWebhook = async (req, res) => {
             // Se o pagamento não foi encontrado no nosso DB, pode ser um pagamento de fora ou um erro.
             // Poderíamos criar um registro aqui se a política permitir. Por agora, apenas logamos.
             console.warn(`Webhook Asaas: Pagamento ${payment.id} não encontrado no DB para atualização.`);
+            
+            // Tratar exclusão de pagamento mesmo se não encontrado (garantir limpeza)
+            if (event === 'PAYMENT_DELETED' || event === 'PAYMENT_REFUNDED') {
+                await client.query(
+                    'DELETE FROM asaas_payments WHERE asaas_payment_id = $1',
+                    [payment.id]
+                );
+                await client.query('COMMIT');
+                console.log(`Webhook Asaas: Pagamento ${payment.id} (não rastreado) deletado do sistema.`);
+                return res.status(200).json({ message: 'Pagamento removido do sistema.' });
+            }
+
             await client.query('ROLLBACK');
             return res.status(200).json({ message: 'Webhook processado, pagamento não encontrado no DB.' });
         }
 
         const userId = paymentRecord.rows[0].user_id;
         let activatedUser = null;
+
+        // Tratar exclusão de pagamento
+        if (event === 'PAYMENT_DELETED' || event === 'PAYMENT_REFUNDED') {
+            // Deletar o pagamento do nosso banco
+            await client.query(
+                'DELETE FROM asaas_payments WHERE asaas_payment_id = $1',
+                [payment.id]
+            );
+
+            await client.query('COMMIT');
+            console.log(`Webhook Asaas: Pagamento ${payment.id} deletado do sistema.`);
+            return res.status(200).json({ message: 'Pagamento removido do sistema.' });
+        }
 
         if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
             // 2. Ativar o usuário e registrar o último pagamento
@@ -846,6 +871,46 @@ const syncUserPayments = async (req, res) => {
     }
 };
 
+// @desc    Deleta um pagamento do sistema e do Asaas
+// @route   DELETE /api/asaas/payments/:paymentId
+// @access  Private (Admin)
+const deletePayment = async (req, res) => {
+    const { paymentId } = req.params; // ID interno do nosso banco
+
+    try {
+        // 1. Buscar o pagamento no nosso banco
+        const paymentResult = await db.query(
+            'SELECT id, asaas_payment_id, status FROM asaas_payments WHERE id = $1',
+            [paymentId]
+        );
+
+        if (paymentResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Pagamento não encontrado.' });
+        }
+
+        const payment = paymentResult.rows[0];
+
+        // 2. Se tiver ID do Asaas e status pendente, deletar do Asaas primeiro
+        if (payment.asaas_payment_id && payment.status === 'pending') {
+            try {
+                await asaasService.deletePayment(payment.asaas_payment_id);
+            } catch (asaasError) {
+                console.warn('Erro ao deletar do Asaas (pode já ter sido removido):', asaasError.message);
+                // Continua mesmo se falhar no Asaas
+            }
+        }
+
+        // 3. Deletar do nosso banco
+        await db.query('DELETE FROM asaas_payments WHERE id = $1', [paymentId]);
+
+        res.json({ message: 'Pagamento deletado com sucesso.' });
+
+    } catch (error) {
+        console.error('Erro ao deletar pagamento:', error);
+        res.status(500).json({ error: 'Erro ao deletar pagamento.' });
+    }
+};
+
 module.exports = {
     createAsaasCustomer,
     createAsaasCharge,
@@ -857,4 +922,5 @@ module.exports = {
     searchUserPayments,
     getPaymentBankSlip,
     syncUserPayments,
+    deletePayment,
 };

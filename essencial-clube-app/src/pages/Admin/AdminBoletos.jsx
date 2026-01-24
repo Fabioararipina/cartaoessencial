@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { adminService } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext'; // Importar useAuth
 import {
   Container, Box, Typography, CircularProgress, Card, CardContent,
   TextField, Button, Alert, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, Chip, IconButton, Divider, InputAdornment,
-  Dialog, DialogTitle, DialogContent, DialogActions
+  Dialog, DialogTitle, DialogContent, DialogActions, DialogContentText
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -14,8 +15,10 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningIcon from '@mui/icons-material/Warning';
 import PendingIcon from '@mui/icons-material/Pending';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 export default function AdminBoletos() {
+  const { user } = useAuth(); // Obter o usuário do contexto
   const [searchQuery, setSearchQuery] = useState('');
   const [foundUserId, setFoundUserId] = useState(null);
   const [payments, setPayments] = useState([]);
@@ -25,6 +28,18 @@ export default function AdminBoletos() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [searched, setSearched] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  const handleDeletePayment = async (paymentId) => {
+      try {
+          await adminService.deletePayment(paymentId);
+          setSuccess('Pagamento deletado com sucesso!');
+          setDeleteConfirm(null);
+          await buscarBoletos(); // Recarregar lista
+      } catch (err) {
+          setError(err.response?.data?.error || 'Erro ao deletar pagamento.');
+      }
+  };
 
   const sincronizarBoletos = async () => {
     if (!foundUserId) return;
@@ -285,6 +300,15 @@ export default function AdminBoletos() {
                           <OpenInNewIcon />
                         </IconButton>
                       )}
+                      {user?.tipo === 'admin' && payment.status === 'pending' && (
+                          <IconButton
+                              color="error"
+                              onClick={() => setDeleteConfirm(payment.id)}
+                              title="Deletar boleto"
+                          >
+                              <DeleteIcon />
+                          </IconButton>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -293,6 +317,26 @@ export default function AdminBoletos() {
           </TableContainer>
         </>
       )}
+
+        {/* Dialog de confirmação */}
+        <Dialog
+            open={!!deleteConfirm}
+            onClose={() => setDeleteConfirm(null)}
+        >
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+            <DialogContent>
+                <DialogContentText>
+                    Tem certeza que deseja deletar este boleto? Esta ação também o removerá
+                    do Asaas (se pendente) e não pode ser desfeita.
+                </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={() => setDeleteConfirm(null)}>Cancelar</Button>
+                <Button onClick={() => handleDeletePayment(deleteConfirm)} color="error" autoFocus>
+                    Deletar
+                </Button>
+            </DialogActions>
+        </Dialog>
     </Container>
   );
 }
