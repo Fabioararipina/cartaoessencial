@@ -129,9 +129,13 @@ export default function ParceiroHome() {
     setNewClientData({ ...newClientData, [field]: e.target.value });
   };
 
+  // Estado para mostrar resultado do cadastro com assinatura
+  const [newClientResult, setNewClientResult] = useState(null);
+
   const handleCreateClient = async () => {
     setSaving(true);
     setFormError('');
+    setNewClientResult(null);
 
     if (!newClientData.nome || !newClientData.email || !newClientData.senha || !newClientData.cpf) {
       setFormError('Preencha todos os campos obrigatórios');
@@ -140,11 +144,24 @@ export default function ParceiroHome() {
     }
 
     try {
-      await authService.register(newClientData);
-      setNewClientDialog(false);
-      // Reset form
+      // 1. Cadastrar o cliente
+      const registerResponse = await authService.register(newClientData);
+      const newUserId = registerResponse.data.user.id;
+
+      // 2. Criar carnê de 12 parcelas (boletos)
+      const installmentResponse = await partnersService.createInstallment({
+        userId: newUserId,
+        description: `Plano Anual (Carnê) Essencial Saúde - ${newClientData.nome}`,
+      });
+
+      setNewClientResult({
+        success: true,
+        cliente: newClientData.nome,
+        installment: installmentResponse.data.installment
+      });
+
+      // Reset form mas mantém dialog aberto para mostrar resultado
       setNewClientData({ nome: '', email: '', cpf: '', senha: '', tipo: 'cliente' });
-      // Not reloading data as client registration doesn't affect partner dashboard directly
     } catch (error) {
       setFormError(error.response?.data?.error || 'Erro ao cadastrar cliente');
     } finally {
@@ -445,71 +462,109 @@ export default function ParceiroHome() {
       </Grid>
 
       {/* Dialog Novo Cliente */}
-      <Dialog open={newClientDialog} onClose={() => setNewClientDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Cadastrar Novo Cliente</DialogTitle>
+      <Dialog open={newClientDialog} onClose={() => { setNewClientDialog(false); setNewClientResult(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle>{newClientResult ? 'Cliente Cadastrado!' : 'Cadastrar Novo Cliente'}</DialogTitle>
         <DialogContent>
-          <Box component="form" sx={{ pt: 1 }}>
-            {formError && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {formError}
+          {newClientResult ? (
+            // Mostrar resultado do cadastro com carnê
+            <Box sx={{ pt: 1 }}>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                Cliente <strong>{newClientResult.cliente}</strong> cadastrado com sucesso! Carnê de 12 parcelas gerado.
               </Alert>
-            )}
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  required
-                  label="Nome Completo"
-                  value={newClientData.nome}
-                  onChange={handleNewClientChange('nome')}
-                  margin="normal"
-                />
+
+              {newClientResult.installment?.payments && newClientResult.installment.payments.length > 0 && (
+                <>
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    sx={{ mb: 2 }}
+                    onClick={() => {
+                      newClientResult.installment.payments.forEach((p, index) => {
+                        setTimeout(() => window.open(p.invoiceUrl, '_blank'), index * 300);
+                      });
+                    }}
+                  >
+                    Abrir Todos os Boletos para Impressão
+                  </Button>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    {newClientResult.installment.payments.length} parcelas de R$ {newClientResult.installment.installmentValue?.toFixed(2)}
+                  </Typography>
+                </>
+              )}
+            </Box>
+          ) : (
+            // Formulário de cadastro
+            <Box component="form" sx={{ pt: 1 }}>
+              {formError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {formError}
+                </Alert>
+              )}
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Nome Completo"
+                    value={newClientData.nome}
+                    onChange={handleNewClientChange('nome')}
+                    margin="normal"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Email"
+                    type="email"
+                    value={newClientData.email}
+                    onChange={handleNewClientChange('email')}
+                    margin="normal"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="CPF (apenas números)"
+                    value={newClientData.cpf}
+                    onChange={handleNewClientChange('cpf')}
+                    margin="normal"
+                    inputProps={{ maxLength: 11 }}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Senha"
+                    type="password"
+                    value={newClientData.senha}
+                    onChange={handleNewClientChange('senha')}
+                    margin="normal"
+                  />
+                </Grid>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  required
-                  label="Email"
-                  type="email"
-                  value={newClientData.email}
-                  onChange={handleNewClientChange('email')}
-                  margin="normal"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  required
-                  label="CPF (apenas números)"
-                  value={newClientData.cpf}
-                  onChange={handleNewClientChange('cpf')}
-                  margin="normal"
-                  inputProps={{ maxLength: 11 }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  required
-                  label="Senha"
-                  type="password"
-                  value={newClientData.senha}
-                  onChange={handleNewClientChange('senha')}
-                  margin="normal"
-                />
-              </Grid>
-            </Grid>
-          </Box>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setNewClientDialog(false)}>Cancelar</Button>
-          <Button
-            onClick={handleCreateClient}
-            variant="contained"
-            disabled={saving}
-          >
-            {saving ? <CircularProgress size={20} /> : 'Cadastrar Cliente'}
-          </Button>
+          {newClientResult ? (
+            <Button onClick={() => { setNewClientDialog(false); setNewClientResult(null); }} variant="contained">
+              Fechar
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => setNewClientDialog(false)}>Cancelar</Button>
+              <Button
+                onClick={handleCreateClient}
+                variant="contained"
+                disabled={saving}
+              >
+                {saving ? <CircularProgress size={20} /> : 'Cadastrar Cliente'}
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </Container>

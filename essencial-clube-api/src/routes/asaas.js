@@ -31,9 +31,34 @@ router.post('/charges', asaasController.createAsaasCharge);
 // @access  Private (Admin/Partner)
 router.post('/subscriptions', asaasController.createAsaasSubscription);
 
+// @route   POST /api/asaas/installments
+// @desc    Cria um carnê (parcelamento) no Asaas
+// @access  Private (Admin/Partner)
+router.post('/installments', asaasController.createAsaasInstallment);
+
 // @route   DELETE /api/asaas/subscriptions/:subscriptionId
 // @desc    Cancela uma assinatura no Asaas
 // @access  Private (Admin)
 router.delete('/subscriptions/:subscriptionId', asaasController.cancelAsaasSubscription);
+
+// @route   GET /api/asaas/payments-search?q=valor
+// @desc    Busca pagamentos por ID, CPF ou Email
+// @access  Private (Admin/Partner)
+router.get('/payments-search', asaasController.searchUserPayments);
+
+// @route   GET /api/asaas/payments/:userId
+// @desc    Lista todos os boletos/pagamentos de um usuário
+// @access  Private (Admin/Partner)
+router.get('/payments/:userId', asaasController.getUserPayments);
+
+// @route   GET /api/asaas/payment/:paymentId/bankslip
+// @desc    Busca o link do boleto diretamente no Asaas
+// @access  Private (Admin/Partner)
+router.get('/payment/:paymentId/bankslip', asaasController.getPaymentBankSlip);
+
+// @route   POST /api/asaas/sync-payments/:userId
+// @desc    Sincroniza boletos de um usuário com o Asaas
+// @access  Private (Admin/Partner)
+router.post('/sync-payments/:userId', asaasController.syncUserPayments);
 
 module.exports = router;

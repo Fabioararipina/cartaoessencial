@@ -245,6 +245,7 @@ const handleWebhook = async (req, res) => {
 // @route   POST /api/asaas/subscriptions
 // @access  Private (Admin/Partner)
 const createAsaasSubscription = async (req, res) => {
+    console.log('--- EXECUTANDO O CÓDIGO COM O TESTE DE LOG ---'); // <--- ADICIONE ESTA LINHA
     const { userId, value, nextDueDate, billingType, description } = req.body;
 
     if (!userId || !value) {
@@ -312,6 +313,53 @@ const createAsaasSubscription = async (req, res) => {
             ]
         );
 
+        // Buscar a primeira cobrança da assinatura para obter link da fatura
+        let firstPayment = null;
+        try {
+            const paymentsResponse = await asaasService.getSubscriptionPayments(subscription.id);
+            if (paymentsResponse.data && paymentsResponse.data.length > 0) {
+                firstPayment = paymentsResponse.data[0];
+
+                // Se for PIX, buscar QR Code
+                if (firstPayment.billingType === 'PIX' || billingType === 'PIX') {
+                    try {
+                        const pixData = await asaasService.getPixQrCode(firstPayment.id);
+                        firstPayment.pixQrCode = pixData.encodedImage;
+                        firstPayment.pixCopyPaste = pixData.payload;
+                    } catch (pixError) {
+                        console.warn('Não foi possível obter QR Code PIX:', pixError.message);
+                    }
+                }
+            }
+
+            // INSERIR A PRIMEIRA COBRANÇA NO NOSSO BANCO DE DADOS para que o webhook a encontre
+            if (firstPayment) {
+                let billingTypeForDb = firstPayment.billingType;
+                const allowedTypes = ['BOLETO', 'PIX', 'CREDIT_CARD'];
+                if (!allowedTypes.includes(billingTypeForDb)) {
+                    billingTypeForDb = null; // Garante que não viole a constraint ENUM
+                }
+
+                await db.query(
+                    `INSERT INTO asaas_payments (user_id, asaas_payment_id, valor, status, billing_type, due_date, invoice_url, pix_qrcode)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                     ON CONFLICT (asaas_payment_id) DO NOTHING`, // Prevenir erros de duplicata
+                    [
+                        userId,
+                        firstPayment.id,
+                        firstPayment.value,
+                        firstPayment.status.toLowerCase(),
+                        billingTypeForDb, // Usa a variável tratada
+                        firstPayment.dueDate,
+                        firstPayment.invoiceUrl,
+                        firstPayment.pixCopyPaste || null // Usar o payload do QR Code
+                    ]
+                );
+            }
+        } catch (paymentError) {
+            console.warn('Não foi possível buscar cobranças da assinatura:', paymentError.message);
+        }
+
         res.status(201).json({
             message: 'Assinatura criada com sucesso!',
             subscription: {
@@ -319,7 +367,12 @@ const createAsaasSubscription = async (req, res) => {
                 value: subscription.value,
                 cycle: subscription.cycle,
                 nextDueDate: subscription.nextDueDate,
-                status: subscription.status
+                status: subscription.status,
+                // Dados da primeira cobrança para exibir no frontend
+                invoiceUrl: firstPayment?.invoiceUrl,
+                pixQrCode: firstPayment?.pixQrCode,
+                pixCopyPaste: firstPayment?.pixCopyPaste,
+                firstPaymentId: firstPayment?.id
             }
         });
     } catch (error) {
@@ -328,15 +381,65 @@ const createAsaasSubscription = async (req, res) => {
     }
 };
 
-// @desc    Cancela uma assinatura no Asaas
+// @desc    Cancela uma assinatura no Asaas, aplicando multa se configurado
 // @route   DELETE /api/asaas/subscriptions/:subscriptionId
 // @access  Private (Admin)
 const cancelAsaasSubscription = async (req, res) => {
     const { subscriptionId } = req.params;
 
     try {
+        // 1. Buscar a configuração de multa do banco de dados
+        const configResult = await db.query(
+            "SELECT config_value FROM system_configs WHERE config_key = 'CANCELLATION_FEE_PERCENTAGE'"
+        );
+        
+        const feePercentage = parseFloat(configResult.rows[0]?.config_value || '0');
+
+        // 2. Se a multa for maior que zero, criar a cobrança da multa
+        if (feePercentage > 0) {
+            // Buscar detalhes da assinatura para obter o valor e o ID do cliente
+            const subscription = await asaasService.getSubscription(subscriptionId);
+            if (!subscription) {
+                return res.status(404).json({ error: 'Assinatura não encontrada no Asaas.' });
+            }
+
+            const penaltyValue = (subscription.value * feePercentage) / 100;
+            const ASAAS_MIN_CHARGE = 5.00; // Valor mínimo de cobrança no Asaas para "Pergunte ao Cliente"
+
+            if (penaltyValue > 0) {
+                if (penaltyValue < ASAAS_MIN_CHARGE) {
+                    console.warn(`Multa de cancelamento (${penaltyValue.toFixed(2)}) abaixo do mínimo do Asaas (${ASAAS_MIN_CHARGE}). Cobrança de multa não será gerada.`);
+                    // Não gera a cobrança se for menor que o mínimo
+                } else {
+                    // Criar uma nova cobrança avulsa para a multa
+                    await asaasService.createCharge({
+                        asaas_customer_id: subscription.customer,
+                        billingType: 'UNDEFINED', // Cliente escolhe como pagar
+                        value: penaltyValue,
+                        dueDate: new Date().toISOString().split('T')[0], // Vence hoje
+                        description: `Multa por cancelamento da assinatura ${subscription.id}`,
+                        externalReference: `cancel_fee_${subscription.id}`
+                    });
+                }
+            }
+        }
+
+        // Etapa de multa finalizada.
+
+        // NOVO: 3. Buscar e deletar cobranças pendentes da assinatura
+        const payments = await asaasService.getSubscriptionPayments(subscriptionId);
+        if (payments && payments.data) {
+            const pendingPayments = payments.data.filter(p => p.status === 'PENDING');
+            console.log(`Encontradas ${pendingPayments.length} cobranças pendentes para deletar.`);
+            for (const payment of pendingPayments) {
+                await asaasService.deletePayment(payment.id);
+            }
+        }
+
+        // 4. Cancelar a assinatura no Asaas
         await asaasService.cancelSubscription(subscriptionId);
 
+        // 5. Atualizar o status da assinatura no nosso banco de dados
         await db.query(
             `UPDATE asaas_subscriptions
              SET status = 'INACTIVE', cancelled_at = NOW(), updated_at = NOW()
@@ -344,10 +447,402 @@ const cancelAsaasSubscription = async (req, res) => {
             [subscriptionId]
         );
 
-        res.json({ message: 'Assinatura cancelada com sucesso.' });
+        res.json({ message: 'Assinatura cancelada com sucesso. Cobranças pendentes removidas e multa gerada, se aplicável.' });
     } catch (error) {
         console.error('Erro ao cancelar assinatura:', error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+// @desc    Cria um carnê (parcelamento) no Asaas
+// @route   POST /api/asaas/installments
+// @access  Private (Admin/Partner)
+const createAsaasInstallment = async (req, res) => {
+    const { userId, description } = req.body;
+    const installmentCount = 12; // Fixo em 12 parcelas
+    const installmentValue = 49.90; // Valor de cada parcela. TODO: buscar de uma config
+
+    if (!userId) {
+        return res.status(400).json({ error: 'ID do usuário é obrigatório para criar carnê.' });
+    }
+
+    const client = await db.connect();
+    try {
+        await client.query('BEGIN');
+
+        let userResult = await client.query('SELECT id, nome, email, cpf, telefone, asaas_customer_id FROM users WHERE id = $1', [userId]);
+        if (userResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Usuário não encontrado.' });
+        }
+
+        let user = userResult.rows[0];
+        let asaasCustomerId = user.asaas_customer_id;
+
+        if (!asaasCustomerId) {
+            console.log(`Cliente Asaas não encontrado para o usuário ${userId}. Criando...`);
+            const asaasCustomer = await asaasService.createCustomer({
+                nome: user.nome, email: user.email, cpf: user.cpf, telefone: user.telefone
+            });
+            asaasCustomerId = asaasCustomer.id;
+            await client.query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [asaasCustomerId, userId]);
+        }
+
+        const firstDueDate = new Date();
+        firstDueDate.setDate(firstDueDate.getDate() + 3); // Vencimento da primeira parcela em 3 dias
+
+        // Criar o pagamento parcelado no Asaas
+        const firstPayment = await asaasService.createInstallment({
+            asaas_customer_id: asaasCustomerId,
+            installmentValue,
+            installmentCount,
+            firstDueDate: firstDueDate.toISOString().split('T')[0],
+            description: description || `Plano Anual (Carnê) Essencial Saúde - ${user.nome}`,
+            externalReference: `installment_user_${userId}_${Date.now()}`
+        });
+
+        // O Asaas retorna o primeiro pagamento com um campo 'installment' contendo o ID do parcelamento
+        // Precisamos buscar todas as parcelas usando esse ID
+        const installmentId = firstPayment.installment;
+
+        if (!installmentId) {
+            throw new Error('Asaas não retornou o ID do parcelamento.');
+        }
+
+        // Aguardar um pouco para o Asaas processar todas as parcelas
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Buscar todas as parcelas do carnê usando o endpoint correto
+        // Tentar até 3 vezes se não retornar todas as parcelas
+        let allPayments = [];
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+            attempts++;
+            try {
+                const allPaymentsResponse = await asaasService.asaasApi.get(`/installments/${installmentId}/payments?limit=20`);
+                allPayments = allPaymentsResponse.data?.data || [];
+
+                console.log(`Tentativa ${attempts}: Encontradas ${allPayments.length} parcelas para o carnê ${installmentId}`);
+
+                if (allPayments.length >= installmentCount) {
+                    break; // Encontrou todas as parcelas
+                }
+
+                // Se não encontrou todas, aguarda mais um pouco e tenta novamente
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            } catch (fetchError) {
+                console.warn(`Erro ao buscar parcelas (tentativa ${attempts}):`, fetchError.message);
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            }
+        }
+
+        if (allPayments.length === 0) {
+            // Se não conseguiu buscar, pelo menos salva o primeiro pagamento
+            console.warn('Não foi possível buscar parcelas, salvando apenas o primeiro pagamento');
+            allPayments.push(firstPayment);
+        }
+
+        console.log(`Total de parcelas a salvar: ${allPayments.length}`);
+
+        // Debug: mostrar estrutura da primeira parcela
+        if (allPayments.length > 0) {
+            console.log('Estrutura da primeira parcela:', JSON.stringify(allPayments[0], null, 2));
+        }
+
+        // Salvar todas as parcelas no nosso banco de dados
+        for (const payment of allPayments) {
+            await client.query(
+                `INSERT INTO asaas_payments (user_id, asaas_payment_id, valor, status, billing_type, due_date, invoice_url)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (asaas_payment_id) DO NOTHING`,
+                [
+                    userId, payment.id, payment.value, payment.status.toLowerCase(),
+                    payment.billingType, payment.dueDate, payment.invoiceUrl
+                ]
+            );
+        }
+
+        await client.query('COMMIT');
+
+        res.status(201).json({
+            message: 'Carnê criado com sucesso!',
+            installment: {
+                id: installmentId,
+                totalValue: installmentValue * installmentCount,
+                installmentCount: installmentCount,
+                installmentValue: installmentValue,
+                // URL do carnê completo (todos os boletos)
+                bankSlipUrl: firstPayment.bankSlipUrl,
+                // URL do primeiro boleto individual
+                invoiceUrl: firstPayment.invoiceUrl,
+                payments: allPayments.map(p => ({
+                    id: p.id,
+                    value: p.value,
+                    dueDate: p.dueDate,
+                    status: p.status,
+                    invoiceUrl: p.invoiceUrl
+                }))
+            }
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao criar carnê:', error.stack);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+};
+
+// @desc    Lista todos os boletos/pagamentos de um usuário
+// @route   GET /api/asaas/payments/:userId
+// @access  Private (Admin/Partner ou próprio usuário)
+const getUserPayments = async (req, res) => {
+    const { userId } = req.params;
+    const { status, installment } = req.query; // Filtros opcionais
+
+    try {
+        let query = `
+            SELECT
+                ap.id,
+                ap.asaas_payment_id,
+                ap.valor,
+                ap.status,
+                ap.billing_type,
+                ap.due_date,
+                ap.payment_date,
+                ap.invoice_url,
+                ap.pix_qrcode,
+                ap.created_at,
+                u.nome as cliente_nome,
+                u.cpf as cliente_cpf
+            FROM asaas_payments ap
+            JOIN users u ON ap.user_id = u.id
+            WHERE ap.user_id = $1
+        `;
+        const params = [userId];
+        let paramIndex = 2;
+
+        if (status) {
+            query += ` AND ap.status = $${paramIndex}`;
+            params.push(status);
+            paramIndex++;
+        }
+
+        query += ` ORDER BY ap.due_date ASC`;
+
+        const result = await db.query(query, params);
+
+        res.json({
+            payments: result.rows,
+            total: result.rows.length
+        });
+    } catch (error) {
+        console.error('Erro ao buscar pagamentos do usuário:', error);
+        res.status(500).json({ error: 'Erro ao buscar pagamentos.' });
+    }
+};
+
+// @desc    Busca pagamentos por ID, CPF ou Email do usuário
+// @route   GET /api/asaas/payments-search?q=valor
+// @access  Private (Admin/Partner)
+const searchUserPayments = async (req, res) => {
+    const { q } = req.query;
+
+    if (!q || !q.trim()) {
+        return res.status(400).json({ error: 'Informe um ID, CPF ou Email para buscar.' });
+    }
+
+    const searchTerm = q.trim();
+
+    try {
+        // Primeiro, encontrar o usuário por ID, CPF ou Email
+        let userQuery;
+        let userParams;
+
+        // Verificar se é número (ID) ou texto (CPF/Email)
+        if (/^\d+$/.test(searchTerm)) {
+            // Busca por ID ou CPF (apenas números)
+            userQuery = `SELECT id, nome, cpf, email FROM users WHERE id = $1 OR cpf = $1 LIMIT 1`;
+            userParams = [searchTerm];
+        } else if (searchTerm.includes('@')) {
+            // Busca por Email
+            userQuery = `SELECT id, nome, cpf, email FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`;
+            userParams = [searchTerm];
+        } else {
+            // Busca por CPF (pode ter pontos/traços)
+            const cpfLimpo = searchTerm.replace(/\D/g, '');
+            userQuery = `SELECT id, nome, cpf, email FROM users WHERE cpf = $1 LIMIT 1`;
+            userParams = [cpfLimpo];
+        }
+
+        const userResult = await db.query(userQuery, userParams);
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuário não encontrado com esse ID, CPF ou Email.' });
+        }
+
+        const user = userResult.rows[0];
+
+        // Agora buscar os pagamentos desse usuário
+        const paymentsQuery = `
+            SELECT
+                ap.id,
+                ap.asaas_payment_id,
+                ap.valor,
+                ap.status,
+                ap.billing_type,
+                ap.due_date,
+                ap.payment_date,
+                ap.invoice_url,
+                ap.pix_qrcode,
+                ap.created_at,
+                u.nome as cliente_nome,
+                u.cpf as cliente_cpf,
+                u.id as user_id
+            FROM asaas_payments ap
+            JOIN users u ON ap.user_id = u.id
+            WHERE ap.user_id = $1
+            ORDER BY ap.due_date ASC
+        `;
+
+        const paymentsResult = await db.query(paymentsQuery, [user.id]);
+
+        res.json({
+            user: {
+                id: user.id,
+                nome: user.nome,
+                cpf: user.cpf,
+                email: user.email
+            },
+            payments: paymentsResult.rows,
+            total: paymentsResult.rows.length
+        });
+    } catch (error) {
+        console.error('Erro ao buscar pagamentos:', error);
+        res.status(500).json({ error: 'Erro ao buscar pagamentos.' });
+    }
+};
+
+// @desc    Busca o link do boleto diretamente no Asaas (para garantir URL atualizada)
+// @route   GET /api/asaas/payment/:paymentId/bankslip
+// @access  Private
+const getPaymentBankSlip = async (req, res) => {
+    const { paymentId } = req.params;
+
+    try {
+        // Buscar detalhes do pagamento no Asaas
+        const payment = await asaasService.getPaymentStatus(paymentId);
+
+        res.json({
+            id: payment.id,
+            bankSlipUrl: payment.bankSlipUrl,
+            invoiceUrl: payment.invoiceUrl,
+            status: payment.status,
+            value: payment.value,
+            dueDate: payment.dueDate
+        });
+    } catch (error) {
+        console.error('Erro ao buscar boleto:', error);
+        res.status(500).json({ error: 'Erro ao buscar boleto.' });
+    }
+};
+
+// @desc    Sincroniza boletos de um usuário com o Asaas (busca do Asaas e atualiza no banco)
+// @route   POST /api/asaas/sync-payments/:userId
+// @access  Private (Admin/Partner)
+const syncUserPayments = async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        // Buscar o asaas_customer_id do usuário
+        const userResult = await db.query(
+            'SELECT id, nome, asaas_customer_id FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuário não encontrado.' });
+        }
+
+        const user = userResult.rows[0];
+
+        if (!user.asaas_customer_id) {
+            return res.status(400).json({ error: 'Usuário não possui cliente Asaas vinculado.' });
+        }
+
+        // Buscar todos os pagamentos do cliente no Asaas
+        const asaasResponse = await asaasService.asaasApi.get(`/payments?customer=${user.asaas_customer_id}&limit=100`);
+        const asaasPayments = asaasResponse.data?.data || [];
+
+        console.log(`Sincronizando ${asaasPayments.length} pagamentos do Asaas para o usuário ${userId}`);
+
+        let inserted = 0;
+        let updated = 0;
+
+        for (const payment of asaasPayments) {
+            // Verificar se já existe no banco
+            const existingResult = await db.query(
+                'SELECT id, status FROM asaas_payments WHERE asaas_payment_id = $1',
+                [payment.id]
+            );
+
+            if (existingResult.rows.length === 0) {
+                // Inserir novo
+
+                // Tratar billing_type para evitar erro de constraint
+                const allowedBillingTypes = ['BOLETO', 'PIX', 'CREDIT_CARD'];
+                let billingTypeForDb = payment.billingType;
+                if (!allowedBillingTypes.includes(billingTypeForDb)) {
+                    billingTypeForDb = null;
+                }
+
+                await db.query(
+                    `INSERT INTO asaas_payments (user_id, asaas_payment_id, valor, status, billing_type, due_date, invoice_url, payment_date)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [
+                        userId,
+                        payment.id,
+                        payment.value,
+                        payment.status.toLowerCase(),
+                        billingTypeForDb,
+                        payment.dueDate,
+                        payment.invoiceUrl,
+                        payment.paymentDate || null
+                    ]
+                );
+                inserted++;
+            } else {
+                // Atualizar status se mudou
+                if (existingResult.rows[0].status !== payment.status.toLowerCase()) {
+                    await db.query(
+                        `UPDATE asaas_payments SET status = $1, payment_date = $2, invoice_url = $3, updated_at = NOW()
+                         WHERE asaas_payment_id = $4`,
+                        [payment.status.toLowerCase(), payment.paymentDate || null, payment.invoiceUrl, payment.id]
+                    );
+                    updated++;
+                }
+            }
+        }
+
+        res.json({
+            message: 'Sincronização concluída!',
+            userId,
+            userName: user.nome,
+            totalFromAsaas: asaasPayments.length,
+            inserted,
+            updated
+        });
+
+    } catch (error) {
+        console.error('Erro ao sincronizar pagamentos:', error);
+        res.status(500).json({ error: 'Erro ao sincronizar pagamentos com o Asaas.' });
     }
 };
 
@@ -356,5 +851,10 @@ module.exports = {
     createAsaasCharge,
     handleWebhook,
     createAsaasSubscription,
-    cancelAsaasSubscription
+    cancelAsaasSubscription,
+    createAsaasInstallment,
+    getUserPayments,
+    searchUserPayments,
+    getPaymentBankSlip,
+    syncUserPayments,
 };

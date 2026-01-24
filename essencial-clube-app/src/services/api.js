@@ -25,11 +25,15 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Token expirado ou inválido
+    const status = error.response?.status;
+    if (status === 401 || status === 403) {
+      // 401: Não autorizado (sem token, token inválido)
+      // 403: Proibido (token válido, mas sem permissão)
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Adiciona um parâmetro para a página de login poder mostrar uma mensagem
+      const message = status === 403 ? 'Sua sessão expirou ou você não tem permissão.' : 'Por favor, faça login novamente.';
+      window.location.href = `/login?message=${encodeURIComponent(message)}`;
     }
     return Promise.reject(error);
   }
@@ -44,7 +48,8 @@ export const authService = {
 // ==================== USERS ====================
 export const userService = {
   getMe: () => api.get('/users/me'),
-  updateMe: (data) => api.put('/users/me', data), // NOVO: Atualizar perfil do usuário logado
+  updateMe: (data) => api.put('/users/me', data),
+  getMyPayments: () => api.get('/users/me/payments'), // Boletos do cliente logado
 };
 
 // ==================== POINTS ====================
@@ -87,7 +92,9 @@ export const partnersService = {
   getMyReferredClients: (params) => api.get('/partners/my-referred-clients', { params }), // NOVO: Relatório de comissão para parceiro
   awardPoints: (user_cpf, valor_compra) => api.post('/partners/transaction', { user_cpf, valor_compra }),
   createCharge: (data) => api.post('/asaas/charges', data),
-  
+  createSubscription: (data) => api.post('/asaas/subscriptions', data), // Assinatura de 12 meses
+  createInstallment: (data) => api.post('/asaas/installments', data), // NOVO: Carnê Anual
+
   // Payouts
   requestPayout: () => api.post('/payouts/request'), // NOVO: Solicitar saque de comissões
   getMyPayoutRequests: (params) => api.get('/payouts/my-requests', { params }), // NOVO: Obter minhas solicitações de saque
@@ -116,6 +123,19 @@ export const adminService = {
   getPayouts: (status) => api.get('/admin/payouts', { params: status ? { status } : {} }),
   approvePayoutRequest: (id) => api.put(`/admin/payouts/${id}/approve`),
   rejectPayoutRequest: (id, motivo) => api.put(`/admin/payouts/${id}/reject`, { motivo }),
+
+  // System Configs
+  getSystemConfigs: () => api.get('/admin/system-configs'),
+  updateSystemConfigs: (data) => api.put('/admin/system-configs', data),
+
+  // Subscription Management
+  getUserSubscriptions: (userId) => api.get(`/users/${userId}/subscriptions`),
+  cancelSubscription: (subscriptionId) => api.delete(`/asaas/subscriptions/${subscriptionId}`),
+
+  // Payments/Boletos Management
+  getUserPayments: (userId) => api.get(`/asaas/payments/${userId}`),
+  searchUserPayments: (query) => api.get(`/asaas/payments-search`, { params: { q: query } }),
+  syncUserPayments: (userId) => api.post(`/asaas/sync-payments/${userId}`),
 };
 
 export default api;
