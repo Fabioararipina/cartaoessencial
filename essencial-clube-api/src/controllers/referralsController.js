@@ -151,14 +151,17 @@ const getStats = async (req, res) => {
 
         const indicacoesParaProximoNivel = nextLevel ?
             NIVEIS[nextLevel].min - user.total_indicacoes : 0;
+            
+        const pendentes = parseInt(counts.pendentes);
+        const convertidos = parseInt(counts.convertidos);
 
         res.json({
             nivel_atual: currentLevel,
             proximo_nivel: nextLevel,
             indicacoes_para_proximo_nivel: Math.max(0, indicacoesParaProximoNivel),
-            total_indicacoes: user.total_indicacoes,
-            pendentes: parseInt(counts.pendentes),
-            convertidos: parseInt(counts.convertidos),
+            total_indicacoes: pendentes + convertidos, // Corrigido
+            pendentes: pendentes,
+            convertidos: convertidos,
             total_pontos_ganhos: parseInt(counts.total_pontos_ganhos),
             pontos_proxima_indicacao: getPontosIndicacao(currentLevel),
             indicacoes: referralsResult.rows

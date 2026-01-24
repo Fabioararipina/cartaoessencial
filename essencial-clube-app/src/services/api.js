@@ -50,6 +50,8 @@ export const userService = {
   getMe: () => api.get('/users/me'),
   updateMe: (data) => api.put('/users/me', data),
   getMyPayments: () => api.get('/users/me/payments'), // Boletos do cliente logado
+  getMyTransactions: (params) => api.get('/users/me/transactions', { params }),
+  getMyStatement: (params) => api.get('/users/me/statement', { params }),
 };
 
 // ==================== POINTS ====================
@@ -133,6 +135,7 @@ export const adminService = {
   cancelSubscription: (subscriptionId) => api.delete(`/asaas/subscriptions/${subscriptionId}`),
 
   // Payments/Boletos Management
+  getAllPayments: (params) => api.get('/asaas/all-payments', { params }),
   getUserPayments: (userId) => api.get(`/asaas/payments/${userId}`),
   searchUserPayments: (query) => api.get(`/asaas/payments-search`, { params: { q: query } }),
   syncUserPayments: (userId) => api.post(`/asaas/sync-payments/${userId}`),

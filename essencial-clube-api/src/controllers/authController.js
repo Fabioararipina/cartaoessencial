@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const asaasService = require('../services/asaasService'); // Importar asaasService
 
 const register = async (req, res) => {
-    const { cpf, nome, email, telefone, senha, tipo: requestedTipo } = req.body;
+    const { cpf, nome, email, telefone, senha, tipo: requestedTipo, referral_code } = req.body;
 
     if (!cpf || !nome || !email || !senha) {
         return res.status(400).json({ error: 'Todos os campos obrigatórios devem ser preenchidos.' });
@@ -29,6 +29,25 @@ const register = async (req, res) => {
         } else if (req.user.tipo === 'parceiro') {
             // If a partner is creating, the new user must be a 'cliente'
             tipo = 'cliente';
+        }
+    }
+
+    // Se veio um código de indicação (cadastro público via Landing Page)
+    if (!referred_by && referral_code) {
+        try {
+            const referrerResult = await db.query(
+                'SELECT id FROM users WHERE LOWER(referral_code) = LOWER($1)',
+                [referral_code]
+            );
+            if (referrerResult.rows.length > 0) {
+                referred_by = referrerResult.rows[0].id;
+                console.log(`Indicação encontrada: código ${referral_code} -> usuário ${referred_by}`);
+            } else {
+                console.warn(`Código de indicação ${referral_code} não encontrado.`);
+            }
+        } catch (err) {
+            console.error('Erro ao buscar código de indicação:', err.message);
+            // Não bloqueia o registro se houver erro na busca do código
         }
     }
 

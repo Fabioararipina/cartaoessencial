@@ -625,6 +625,152 @@ const createAsaasInstallment = async (req, res) => {
     }
 };
 
+// @desc    Cria um carnê (parcelamento) no Asaas para um usuário recém cadastrado (PÚBLICO)
+// @route   POST /api/asaas/public/installments
+// @access  Public
+const createPublicAsaasInstallment = async (req, res) => {
+    const { userId, description } = req.body;
+    const installmentCount = 12; // Fixo em 12 parcelas
+    const installmentValue = 49.90; // Valor de cada parcela. TODO: buscar de uma config
+
+    if (!userId) {
+        return res.status(400).json({ error: 'ID do usuário é obrigatório para criar carnê.' });
+    }
+
+    const client = await db.connect();
+    try {
+        await client.query('BEGIN');
+
+        let userResult = await client.query('SELECT id, nome, email, cpf, telefone, asaas_customer_id FROM users WHERE id = $1', [userId]);
+        if (userResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Usuário não encontrado.' });
+        }
+
+        let user = userResult.rows[0];
+        let asaasCustomerId = user.asaas_customer_id;
+
+        if (!asaasCustomerId) {
+            console.log(`Cliente Asaas não encontrado para o usuário ${userId}. Criando...`);
+            const asaasCustomer = await asaasService.createCustomer({
+                nome: user.nome, email: user.email, cpf: user.cpf, telefone: user.telefone
+            });
+            asaasCustomerId = asaasCustomer.id;
+            await client.query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [asaasCustomerId, userId]);
+        }
+
+        const firstDueDate = new Date();
+        firstDueDate.setDate(firstDueDate.getDate() + 3); // Vencimento da primeira parcela em 3 dias
+
+        // Criar o pagamento parcelado no Asaas
+        const firstPayment = await asaasService.createInstallment({
+            asaas_customer_id: asaasCustomerId,
+            installmentValue,
+            installmentCount,
+            firstDueDate: firstDueDate.toISOString().split('T')[0],
+            description: description || `Plano Anual (Carnê) Essencial Saúde - ${user.nome}`,
+            externalReference: `installment_user_${userId}_${Date.now()}`
+        });
+
+        // O Asaas retorna o primeiro pagamento com um campo 'installment' contendo o ID do parcelamento
+        // Precisamos buscar todas as parcelas usando esse ID
+        const installmentId = firstPayment.installment;
+
+        if (!installmentId) {
+            throw new Error('Asaas não retornou o ID do parcelamento.');
+        }
+
+        // Aguardar um pouco para o Asaas processar todas as parcelas
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Buscar todas as parcelas do carnê usando o endpoint correto
+        // Tentar até 3 vezes se não retornar todas as parcelas
+        let allPayments = [];
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+            attempts++;
+            try {
+                const allPaymentsResponse = await asaasService.asaasApi.get(`/installments/${installmentId}/payments?limit=20`);
+                allPayments = allPaymentsResponse.data?.data || [];
+
+                console.log(`Tentativa ${attempts}: Encontradas ${allPayments.length} parcelas para o carnê ${installmentId}`);
+
+                if (allPayments.length >= installmentCount) {
+                    break; // Encontrou todas as parcelas
+                }
+
+                // Se não encontrou todas, aguarda mais um pouco e tenta novamente
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            } catch (fetchError) {
+                console.warn(`Erro ao buscar parcelas (tentativa ${attempts}):`, fetchError.message);
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            }
+        }
+
+        if (allPayments.length === 0) {
+            // Se não conseguiu buscar, pelo menos salva o primeiro pagamento
+            console.warn('Não foi possível buscar parcelas, salvando apenas o primeiro pagamento');
+            allPayments.push(firstPayment);
+        }
+
+        console.log(`Total de parcelas a salvar: ${allPayments.length}`);
+
+        // Debug: mostrar estrutura da primeira parcela
+        if (allPayments.length > 0) {
+            console.log('Estrutura da primeira parcela:', JSON.stringify(allPayments[0], null, 2));
+        }
+
+        // Salvar todas as parcelas no nosso banco de dados
+        for (const payment of allPayments) {
+            await client.query(
+                `INSERT INTO asaas_payments (user_id, asaas_payment_id, valor, status, billing_type, due_date, invoice_url)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (asaas_payment_id) DO NOTHING`,
+                [
+                    userId, payment.id, payment.value, payment.status.toLowerCase(),
+                    payment.billingType, payment.dueDate, payment.invoiceUrl
+                ]
+            );
+        }
+
+        await client.query('COMMIT');
+
+        res.status(201).json({
+            message: 'Carnê criado com sucesso!',
+            installment: {
+                id: installmentId,
+                totalValue: installmentValue * installmentCount,
+                installmentCount: installmentCount,
+                installmentValue: installmentValue,
+                // URL do carnê completo (todos os boletos)
+                bankSlipUrl: firstPayment.bankSlipUrl,
+                // URL do primeiro boleto individual
+                invoiceUrl: firstPayment.invoiceUrl,
+                payments: allPayments.map(p => ({
+                    id: p.id,
+                    value: p.value,
+                    dueDate: p.dueDate,
+                    status: p.status,
+                    invoiceUrl: p.invoiceUrl
+                }))
+            }
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao criar carnê:', error.stack);
+        res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+};
+
 // @desc    Lista todos os boletos/pagamentos de um usuário
 // @route   GET /api/asaas/payments/:userId
 // @access  Private (Admin/Partner ou próprio usuário)
@@ -943,6 +1089,125 @@ const deletePayment = async (req, res) => {
     }
 };
 
+// @desc    Lista todos os boletos/pagamentos com filtros e resumo
+// @route   GET /api/asaas/all-payments
+// @access  Private (Admin)
+const getAllPayments = async (req, res) => {
+    const { status, search, limit = 50, offset = 0 } = req.query;
+
+    try {
+        // 1. Buscar resumo geral (cards)
+        const summaryResult = await db.query(`
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status = 'pending') as pendentes,
+                COUNT(*) FILTER (WHERE status IN ('received', 'confirmed')) as pagos,
+                COUNT(*) FILTER (WHERE status = 'overdue') as vencidos,
+                COALESCE(SUM(valor) FILTER (WHERE status = 'pending'), 0) as valor_pendente,
+                COALESCE(SUM(valor) FILTER (WHERE status IN ('received', 'confirmed')), 0) as valor_pago,
+                COALESCE(SUM(valor) FILTER (WHERE status = 'overdue'), 0) as valor_vencido
+            FROM asaas_payments
+        `);
+
+        // 2. Construir query de pagamentos com filtros
+        let query = `
+            SELECT
+                ap.id,
+                ap.asaas_payment_id,
+                ap.valor,
+                ap.status,
+                ap.billing_type,
+                ap.due_date,
+                ap.payment_date,
+                ap.invoice_url,
+                ap.created_at,
+                u.id as user_id,
+                u.nome as cliente_nome,
+                u.cpf as cliente_cpf,
+                u.email as cliente_email
+            FROM asaas_payments ap
+            JOIN users u ON ap.user_id = u.id
+            WHERE 1=1
+        `;
+        const params = [];
+        let paramIndex = 1;
+
+        // Filtro por status
+        if (status && status !== 'todos') {
+            if (status === 'pagos') {
+                query += ` AND ap.status IN ('received', 'confirmed')`;
+            } else {
+                query += ` AND ap.status = $${paramIndex}`;
+                params.push(status);
+                paramIndex++;
+            }
+        }
+
+        // Filtro por busca (nome, cpf ou email)
+        if (search && search.trim()) {
+            const searchTerm = `%${search.trim()}%`;
+            query += ` AND (u.nome ILIKE $${paramIndex} OR u.cpf LIKE $${paramIndex + 1} OR u.email ILIKE $${paramIndex + 2})`;
+            params.push(searchTerm, search.trim().replace(/\D/g, '') + '%', searchTerm);
+            paramIndex += 3;
+        }
+
+        // Ordenação e paginação
+        query += ` ORDER BY ap.due_date DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        params.push(parseInt(limit), parseInt(offset));
+
+        const paymentsResult = await db.query(query, params);
+
+        // 3. Contar total para paginação
+        let countQuery = `
+            SELECT COUNT(*) as total
+            FROM asaas_payments ap
+            JOIN users u ON ap.user_id = u.id
+            WHERE 1=1
+        `;
+        const countParams = [];
+        let countParamIndex = 1;
+
+        if (status && status !== 'todos') {
+            if (status === 'pagos') {
+                countQuery += ` AND ap.status IN ('received', 'confirmed')`;
+            } else {
+                countQuery += ` AND ap.status = $${countParamIndex}`;
+                countParams.push(status);
+                countParamIndex++;
+            }
+        }
+
+        if (search && search.trim()) {
+            const searchTerm = `%${search.trim()}%`;
+            countQuery += ` AND (u.nome ILIKE $${countParamIndex} OR u.cpf LIKE $${countParamIndex + 1} OR u.email ILIKE $${countParamIndex + 2})`;
+            countParams.push(searchTerm, search.trim().replace(/\D/g, '') + '%', searchTerm);
+        }
+
+        const countResult = await db.query(countQuery, countParams);
+
+        res.json({
+            summary: {
+                total: parseInt(summaryResult.rows[0].total),
+                pendentes: parseInt(summaryResult.rows[0].pendentes),
+                pagos: parseInt(summaryResult.rows[0].pagos),
+                vencidos: parseInt(summaryResult.rows[0].vencidos),
+                valorPendente: parseFloat(summaryResult.rows[0].valor_pendente),
+                valorPago: parseFloat(summaryResult.rows[0].valor_pago),
+                valorVencido: parseFloat(summaryResult.rows[0].valor_vencido)
+            },
+            payments: paymentsResult.rows,
+            pagination: {
+                total: parseInt(countResult.rows[0].total),
+                limit: parseInt(limit),
+                offset: parseInt(offset)
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao buscar todos os pagamentos:', error);
+        res.status(500).json({ error: 'Erro ao buscar pagamentos.' });
+    }
+};
+
 module.exports = {
     createAsaasCustomer,
     createAsaasCharge,
@@ -950,9 +1215,12 @@ module.exports = {
     createAsaasSubscription,
     cancelAsaasSubscription,
     createAsaasInstallment,
+    createPublicAsaasInstallment,
     getUserPayments,
     searchUserPayments,
     getPaymentBankSlip,
     syncUserPayments,
     deletePayment,
+    getAllPayments,
 };
+

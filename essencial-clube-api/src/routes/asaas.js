@@ -6,6 +6,9 @@ const { verifyToken, isAdmin, isPartner } = require('../middleware/auth'); // Im
 // Rota para webhooks do Asaas (pública, mas protegida por token interno)
 router.post('/webhook', asaasController.handleWebhook);
 
+// Rota para criação de carnê de um usuário novo (pública)
+router.post('/public/installments', asaasController.createPublicAsaasInstallment);
+
 // Rotas protegidas
 router.use(verifyToken); // Todas as rotas abaixo requerem autenticação
 
@@ -21,6 +24,11 @@ router.delete(
     asaasController.deletePayment
 );
 
+
+// @route   GET /api/asaas/all-payments
+// @desc    Lista todos os boletos com filtros e resumo (visão geral)
+// @access  Private (Admin)
+router.get('/all-payments', isAdmin, asaasController.getAllPayments);
 
 // --- ROTAS ADMIN E PARCEIRO ---
 const isAdminOrPartner = (req, res, next) => {

@@ -6,6 +6,8 @@ import MainLayout from './components/Layout/MainLayout';
 // Páginas públicas
 import Login from './pages/Login';
 import Register from './pages/Register';
+import LandingIndicacao from './pages/LandingIndicacao';
+import RegisterReferral from './pages/RegisterReferral';
 
 // Páginas do Cliente
 import Dashboard from './pages/Dashboard';
@@ -13,6 +15,8 @@ import Premios from './pages/Premios';
 import Indicar from './pages/Indicar';
 import Perfil from './pages/Perfil';
 import MeusBoletos from './pages/MeusBoletos';
+import Extrato from './pages/Extrato';
+import Parceiros from './pages/Parceiros';
 
 // Páginas do Parceiro
 import ParceiroHome from './pages/Parceiro/ParceiroHome';
@@ -55,6 +59,15 @@ function App() {
             }
           />
 
+          <Route
+            path="/cadastro-indicado/:referralCode"
+            element={
+              <PublicRoute>
+                <RegisterReferral />
+              </PublicRoute>
+            }
+          />
+
           {/* Redirect raiz */}
           <Route path="/" element={<Navigate to="/login" replace />} />
 
@@ -71,7 +84,8 @@ function App() {
             <Route path="/indicar" element={<Indicar />} />
             <Route path="/perfil" element={<Perfil />} />
             <Route path="/boletos" element={<MeusBoletos />} />
-            <Route path="/extrato" element={<Dashboard />} /> {/* TODO: criar página */}
+            <Route path="/extrato" element={<Extrato />} />
+            <Route path="/parceiros" element={<Parceiros />} />
           </Route>
 
           {/* Rotas do Parceiro */}
@@ -108,8 +122,8 @@ function App() {
             <Route path="/admin/boletos" element={<AdminBoletos />} />
           </Route>
 
-          {/* Rota de indicação (pública) */}
-          <Route path="/i/:code" element={<Navigate to="/login" replace />} /> {/* TODO: implementar */}
+          {/* Rota de indicação (pública) - Landing Page */}
+          <Route path="/i/:code" element={<LandingIndicacao />} />
 
           {/* 404 */}
           <Route path="*" element={<Navigate to="/login" replace />} />

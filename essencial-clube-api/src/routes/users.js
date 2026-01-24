@@ -23,4 +23,7 @@ router.put('/me', verifyToken, usersController.updateMe);
 // @access  Private
 router.get('/me/payments', verifyToken, usersController.getMyPayments);
 
+router.get('/me/transactions', verifyToken, usersController.getMyTransactions);
+router.get('/me/statement', verifyToken, usersController.getMyStatement);
+
 module.exports = router;

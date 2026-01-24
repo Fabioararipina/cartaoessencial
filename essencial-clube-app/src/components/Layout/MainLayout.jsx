@@ -20,6 +20,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import ReceiptIcon from '@mui/icons-material/Receipt'; // Ícone para Boletos
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'; // NOVO: Ícone para Extrato
 import LogoutIcon from '@mui/icons-material/Logout';
 import logo from '../../assets/logo.png'; // NOVO: Importar logo que estava faltando
 
@@ -42,11 +43,14 @@ const getNavItems = (tipo) => {
     comissoes: <AttachMoneyIcon />,
     saques: <AccountBalanceWalletIcon />,
     boletos: <ReceiptIcon />, // Ícone para Boletos
+    extrato: <ReceiptLongIcon />,
   };
 
   const items = {
     cliente: [
       { to: '/dashboard', label: 'Início', icon: iconMap.home },
+      { to: '/extrato', label: 'Extrato', icon: iconMap.extrato },
+      { to: '/parceiros', label: 'Parceiros', icon: iconMap.parceiros },
       { to: '/premios', label: 'Prêmios', icon: iconMap.premios },
       { to: '/indicar', label: 'Indicar', icon: iconMap.indicar },
       { to: '/boletos', label: 'Meus Boletos', icon: iconMap.boletos },
