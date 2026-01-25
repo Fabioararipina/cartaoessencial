@@ -1614,3 +1614,95 @@ node src/utils/importAsaasClients.js
 - [ ] Testar sistema de dependentes
 - [ ] Verificar links de indicacao com URL correta
 - [ ] Backup do banco de dados antes de qualquer alteracao
+
+---
+
+## 📝 LOG DE DESENVOLVIMENTO - 25/01/2026 (Sessao 2)
+
+### **Resumo da Sessao**
+
+Continuacao do dia 25/01. Implementamos o tratamento de inadimplencia e uma pagina publica para consulta de boletos.
+
+#### **1. Tratamento de Inadimplencia - IMPLEMENTADO**
+
+**Problema identificado:** O sistema nao bloqueava automaticamente usuarios inadimplentes.
+
+**Solucoes implementadas:**
+
+1. **Webhook PAYMENT_OVERDUE:** O `asaasController.js` agora trata o evento `PAYMENT_OVERDUE` do Asaas. Quando um pagamento vence e o cliente nao tem outros pagamentos recentes (ultimos 30 dias), o status e alterado para `inativo`.
+
+2. **Parceiro ve boletos pendentes:** Na tela de Lancar Pontos (`LancarPontos.jsx`), quando o cliente esta inativo, o sistema mostra os boletos pendentes existentes com links para pagamento, em vez de gerar um novo carne.
+
+3. **Endpoint para boletos do cliente:** Novo endpoint `GET /api/partners/client-payments/:userId` retorna boletos pendentes de um cliente especifico.
+
+#### **2. Pagina Publica de Consulta de Boletos - IMPLEMENTADO**
+
+**Objetivo:** Permitir que clientes inativos consultem seus boletos pendentes sem precisar fazer login (ja que o login bloqueia usuarios inativos).
+
+**Arquivos criados/modificados:**
+
+| Arquivo | Descricao |
+|---------|-----------|
+| `ConsultaBoletos.jsx` | Nova pagina publica |
+| `usersController.js` | Novo endpoint `getPublicBoletos` |
+| `routes/users.js` | Rota publica `/public/boletos/:cpf` |
+| `App.jsx` | Rota `/consulta-boletos` |
+
+**Funcionamento:**
+
+```
+1. Cliente acessa: https://cartao.primeatende.com.br/consulta-boletos
+   ↓
+2. Digita seu CPF
+   ↓
+3. Sistema busca boletos pendentes/vencidos
+   ↓
+4. Exibe lista com links para pagar cada boleto
+   ↓
+5. Apos pagamento, webhook ativa o cliente automaticamente
+```
+
+**Caracteristicas da pagina:**
+
+- Nao requer autenticacao (rota publica)
+- Valida formato do CPF
+- Mostra resumo: total pendente, vencidos, proximo vencimento
+- Destaque para boleto vencido mais antigo
+- Links diretos para pagamento no Asaas
+- Mensagem quando nao ha boletos pendentes
+
+#### **Fluxo Completo de Inadimplencia:**
+
+```
+CLIENTE FICA INADIMPLENTE
+         ↓
+Asaas envia webhook PAYMENT_OVERDUE
+         ↓
+Sistema verifica se ha pagamentos recentes
+         ↓
+Se nao houver: status → 'inativo'
+         ↓
+Cliente tenta fazer login → BLOQUEADO
+         ↓
+Cliente acessa /consulta-boletos
+         ↓
+Digita CPF → ve boletos pendentes
+         ↓
+Paga boleto via link do Asaas
+         ↓
+Asaas envia webhook PAYMENT_CONFIRMED
+         ↓
+Sistema ativa cliente automaticamente
+         ↓
+Cliente pode fazer login normalmente
+```
+
+---
+
+### **Endpoints Publicos (sem autenticacao)**
+
+| Endpoint | Descricao |
+|----------|-----------|
+| `GET /api/users/public/boletos/:cpf` | Consulta boletos por CPF |
+| `POST /api/referrals/validate/:code` | Valida codigo de indicacao |
+| `GET /api/partners` | Lista parceiros ativos |
