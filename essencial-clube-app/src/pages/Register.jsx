@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container, Box, Typography, TextField, Button, CircularProgress,
   Alert, Link as MuiLink, Stepper, Step, StepLabel, ToggleButtonGroup,
@@ -6,15 +6,27 @@ import {
   TableHead, TableRow, Paper, Chip, IconButton
 } from '@mui/material';
 import { useNavigate, Link } from 'react-router-dom';
-import { authService, partnersService } from '../services/api'; // Usar partnersService que já tem as funções
+import { authService, partnersService } from '../services/api';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PrintIcon from '@mui/icons-material/Print';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import VerifiedIcon from '@mui/icons-material/Verified';
 
 export default function Register() {
   const navigate = useNavigate();
-  
+
+  // Código de indicação (vindo da Landing Page)
+  const [referralCode, setReferralCode] = useState('');
+
+  // Buscar código de indicação do localStorage ao carregar
+  useEffect(() => {
+    const savedCode = localStorage.getItem('referralCode');
+    if (savedCode) {
+      setReferralCode(savedCode);
+    }
+  }, []);
+
   // State for multi-step form
   const [step, setStep] = useState(0); // 0: form, 1: payment, 2: success
   const [newUser, setNewUser] = useState(null);
@@ -63,8 +75,18 @@ export default function Register() {
     }
 
     try {
-      const response = await authService.register(formData);
+      // Incluir código de indicação se existir
+      const registerData = { ...formData };
+      if (referralCode) {
+        registerData.referral_code = referralCode;
+      }
+
+      const response = await authService.register(registerData);
       setNewUser(response.data.user);
+
+      // Limpar código de indicação do localStorage após usar
+      localStorage.removeItem('referralCode');
+
       setStep(1); // Move to payment step
     } catch (err) {
       const message = err.response?.data?.error || 'Erro ao realizar cadastro. Tente novamente.';
@@ -109,6 +131,17 @@ export default function Register() {
 
   const renderStep0 = () => (
     <Box>
+      {/* Badge de indicação */}
+      {referralCode && (
+        <Alert
+          icon={<VerifiedIcon />}
+          severity="success"
+          sx={{ mb: 2, borderRadius: 2 }}
+        >
+          Você foi indicado! Ao completar o cadastro, você e quem indicou ganham pontos extras.
+        </Alert>
+      )}
+
       <Box sx={{ my: 4, textAlign: 'center' }}>
         <Typography variant="h5" component="h1" gutterBottom fontWeight="bold">
           Cadastre-se

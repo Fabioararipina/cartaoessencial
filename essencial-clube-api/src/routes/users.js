@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const usersController = require('../controllers/usersController');
+const userCommissionsController = require('../controllers/userCommissionsController'); // NEW
 const { verifyToken, isAdmin } = require('../middleware/auth');
 
 // @route   GET /api/users/:id/subscriptions
@@ -25,5 +26,8 @@ router.get('/me/payments', verifyToken, usersController.getMyPayments);
 
 router.get('/me/transactions', verifyToken, usersController.getMyTransactions);
 router.get('/me/statement', verifyToken, usersController.getMyStatement);
+
+// NEW: Route for user's commissions report
+router.get('/me/commissions', verifyToken, userCommissionsController.getMyCommissions);
 
 module.exports = router;

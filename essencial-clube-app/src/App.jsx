@@ -17,6 +17,7 @@ import Perfil from './pages/Perfil';
 import MeusBoletos from './pages/MeusBoletos';
 import Extrato from './pages/Extrato';
 import Parceiros from './pages/Parceiros';
+import MinhasComissoes from './pages/MinhasComissoes'; // NEW
 
 // Páginas do Parceiro
 import ParceiroHome from './pages/Parceiro/ParceiroHome';
@@ -86,6 +87,7 @@ function App() {
             <Route path="/boletos" element={<MeusBoletos />} />
             <Route path="/extrato" element={<Extrato />} />
             <Route path="/parceiros" element={<Parceiros />} />
+            <Route path="/comissoes" element={<MinhasComissoes />} /> {/* NOVA ROTA */}
           </Route>
 
           {/* Rotas do Parceiro */}

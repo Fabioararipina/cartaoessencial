@@ -54,6 +54,7 @@ const getNavItems = (tipo) => {
       { to: '/premios', label: 'Prêmios', icon: iconMap.premios },
       { to: '/indicar', label: 'Indicar', icon: iconMap.indicar },
       { to: '/boletos', label: 'Meus Boletos', icon: iconMap.boletos },
+      { to: '/comissoes', label: 'Minhas Comissões', icon: iconMap.comissoes }, // NEW
     ],
     parceiro: [
       { to: '/parceiro', label: 'Início', icon: iconMap.home },

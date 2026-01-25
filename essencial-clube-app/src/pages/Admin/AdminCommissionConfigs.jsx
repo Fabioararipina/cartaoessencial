@@ -379,6 +379,7 @@ export default function AdminCommissionConfigs() {
                   <MenuItem value="partner">Parceiros</MenuItem>
                   <MenuItem value="ambassador">Embaixadores</MenuItem>
                   <MenuItem value="custom">Usuários Específicos</MenuItem>
+                  <MenuItem value="cliente">Clientes</MenuItem>
                 </Select>
               </FormControl>
             </Grid>

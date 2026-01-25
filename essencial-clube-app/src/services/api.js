@@ -52,6 +52,7 @@ export const userService = {
   getMyPayments: () => api.get('/users/me/payments'), // Boletos do cliente logado
   getMyTransactions: (params) => api.get('/users/me/transactions', { params }),
   getMyStatement: (params) => api.get('/users/me/statement', { params }),
+  getMyCommissions: (params) => api.get('/users/me/commissions', { params }), // NOVO
 };
 
 // ==================== POINTS ====================

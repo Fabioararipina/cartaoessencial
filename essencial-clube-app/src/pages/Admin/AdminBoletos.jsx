@@ -1,99 +1,131 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { adminService } from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext'; // Importar useAuth
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Container, Box, Typography, CircularProgress, Card, CardContent,
   TextField, Button, Alert, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Paper, Chip, IconButton, Divider, InputAdornment,
-  Dialog, DialogTitle, DialogContent, DialogActions, DialogContentText
+  TableHead, TableRow, Paper, Chip, IconButton, InputAdornment,
+  Dialog, DialogTitle, DialogContent, DialogActions, DialogContentText,
+  Tabs, Tab, Pagination, Grid, Tooltip
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import PrintIcon from '@mui/icons-material/Print';
 import SyncIcon from '@mui/icons-material/Sync';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningIcon from '@mui/icons-material/Warning';
 import PendingIcon from '@mui/icons-material/Pending';
 import DeleteIcon from '@mui/icons-material/Delete';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import ClearIcon from '@mui/icons-material/Clear';
 
 export default function AdminBoletos() {
-  const { user } = useAuth(); // Obter o usuário do contexto
-  const [searchQuery, setSearchQuery] = useState('');
-  const [foundUserId, setFoundUserId] = useState(null);
+  const { user } = useAuth();
   const [payments, setPayments] = useState([]);
-  const [clienteInfo, setClienteInfo] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [summary, setSummary] = useState({
+    total: 0,
+    pendentes: 0,
+    pagos: 0,
+    vencidos: 0,
+    valorPendente: 0,
+    valorPago: 0,
+    valorVencido: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [searched, setSearched] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  const handleDeletePayment = async (paymentId) => {
-      try {
-          await adminService.deletePayment(paymentId);
-          setSuccess('Pagamento deletado com sucesso!');
-          setDeleteConfirm(null);
-          await buscarBoletos(); // Recarregar lista
-      } catch (err) {
-          setError(err.response?.data?.error || 'Erro ao deletar pagamento.');
+  // Filtros
+  const [statusFilter, setStatusFilter] = useState('todos');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+
+  // Paginação
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const itemsPerPage = 20;
+
+  useEffect(() => {
+    carregarBoletos();
+  }, [statusFilter, searchQuery, page]);
+
+  const carregarBoletos = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const params = {
+        limit: itemsPerPage,
+        offset: (page - 1) * itemsPerPage
+      };
+
+      if (statusFilter !== 'todos') {
+        params.status = statusFilter;
       }
+
+      if (searchQuery.trim()) {
+        params.search = searchQuery.trim();
+      }
+
+      const response = await adminService.getAllPayments(params);
+
+      setPayments(response.data.payments || []);
+      setSummary(response.data.summary || {});
+      setTotalItems(response.data.pagination?.total || 0);
+      setTotalPages(Math.ceil((response.data.pagination?.total || 0) / itemsPerPage));
+    } catch (err) {
+      console.error('Erro ao carregar boletos:', err);
+      setError(err.response?.data?.error || 'Erro ao carregar boletos.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const sincronizarBoletos = async () => {
-    if (!foundUserId) return;
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setSearchQuery(searchInput);
+    setPage(1);
+  };
 
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setSearchQuery('');
+    setPage(1);
+  };
+
+  const handleStatusChange = (event, newValue) => {
+    setStatusFilter(newValue);
+    setPage(1);
+  };
+
+  const handleDeletePayment = async (paymentId) => {
     try {
-      setSyncing(true);
+      await adminService.deletePayment(paymentId);
+      setSuccess('Pagamento deletado com sucesso!');
+      setDeleteConfirm(null);
+      await carregarBoletos();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erro ao deletar pagamento.');
+    }
+  };
+
+  const sincronizarBoletos = async (userId) => {
+    try {
+      setSyncing(userId);
       setError('');
       setSuccess('');
-      const response = await adminService.syncUserPayments(foundUserId);
-      setSuccess(`Sincronizado! ${response.data.inserted} novos, ${response.data.updated} atualizados de ${response.data.totalFromAsaas} boletos no Asaas.`);
-      // Recarregar a lista
-      await buscarBoletos();
+      const response = await adminService.syncUserPayments(userId);
+      setSuccess(`Sincronizado! ${response.data.inserted} novos, ${response.data.updated} atualizados, ${response.data.deleted || 0} removidos.`);
+      await carregarBoletos();
     } catch (err) {
       console.error('Erro ao sincronizar:', err);
       setError(err.response?.data?.error || 'Erro ao sincronizar com o Asaas.');
     } finally {
-      setSyncing(false);
-    }
-  };
-
-  const buscarBoletos = async (e) => {
-    e?.preventDefault();
-    if (!searchQuery.trim()) {
-      setError('Informe o ID, CPF ou Email do usuário');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError('');
-      setSearched(true);
-      const response = await adminService.searchUserPayments(searchQuery);
-      setPayments(response.data.payments || []);
-      setFoundUserId(response.data.user?.id || null);
-
-      // Pegar info do cliente da resposta
-      if (response.data.user) {
-        setClienteInfo({
-          id: response.data.user.id,
-          nome: response.data.user.nome,
-          cpf: response.data.user.cpf,
-          email: response.data.user.email
-        });
-      } else {
-        setClienteInfo(null);
-      }
-    } catch (err) {
-      console.error('Erro ao buscar boletos:', err);
-      setError(err.response?.data?.error || 'Erro ao buscar boletos do usuário.');
-      setPayments([]);
-      setClienteInfo(null);
-      setFoundUserId(null);
-    } finally {
-      setLoading(false);
+      setSyncing(null);
     }
   };
 
@@ -108,235 +140,285 @@ export default function AdminBoletos() {
     return <Chip label={config.label} color={config.color} size="small" icon={config.icon} />;
   };
 
-  const handlePrintAll = () => {
-    const pendingPayments = payments.filter(p => p.status === 'pending' && p.invoice_url);
-    if (pendingPayments.length === 0) {
-      alert('Nenhum boleto pendente para imprimir.');
-      return;
-    }
-    pendingPayments.forEach((payment, index) => {
-      setTimeout(() => {
-        window.open(payment.invoice_url, '_blank');
-      }, index * 300);
-    });
+  const formatCPF = (cpf) => {
+    if (!cpf) return 'N/A';
+    return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
   };
 
-  const summary = {
-    total: payments.length,
-    pending: payments.filter(p => p.status === 'pending').length,
-    paid: payments.filter(p => ['received', 'confirmed'].includes(p.status)).length,
-    overdue: payments.filter(p => p.status === 'overdue').length,
-    totalPending: payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + parseFloat(p.valor), 0)
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'N/A';
+    return new Date(dateStr).toLocaleDateString('pt-BR');
   };
 
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
+      {/* Cabeçalho */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5" component="h1" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <ReceiptLongIcon color="primary" />
-          Consultar Boletos de Cliente
+          Gestão de Boletos
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Busque e imprima os boletos/carnê de qualquer cliente
+          Visão geral de todos os boletos do sistema
         </Typography>
       </Box>
 
-      {/* Formulário de busca */}
+      {/* Cards de Resumo */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ background: 'linear-gradient(135deg, #5287fb 0%, #3d6fd9 100%)', color: 'white' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <ReceiptLongIcon sx={{ fontSize: 32, opacity: 0.8, mb: 1 }} />
+              <Typography variant="h4" fontWeight="bold">{summary.total}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>Total de Boletos</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)', color: 'white' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <PendingIcon sx={{ fontSize: 32, opacity: 0.8, mb: 1 }} />
+              <Typography variant="h4" fontWeight="bold">{summary.pendentes}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>Pendentes</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>{formatCurrency(summary.valorPendente)}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ background: 'linear-gradient(135deg, #74ca4f 0%, #4caf50 100%)', color: 'white' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <CheckCircleIcon sx={{ fontSize: 32, opacity: 0.8, mb: 1 }} />
+              <Typography variant="h4" fontWeight="bold">{summary.pagos}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>Pagos</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>{formatCurrency(summary.valorPago)}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)', color: 'white' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <ErrorOutlineIcon sx={{ fontSize: 32, opacity: 0.8, mb: 1 }} />
+              <Typography variant="h4" fontWeight="bold">{summary.vencidos}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>Vencidos</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>{formatCurrency(summary.valorVencido)}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Filtros */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Box component="form" onSubmit={buscarBoletos} sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
+          {/* Tabs de Status */}
+          <Tabs
+            value={statusFilter}
+            onChange={handleStatusChange}
+            sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab label={`Todos (${summary.total})`} value="todos" />
+            <Tab label={`Pendentes (${summary.pendentes})`} value="pending" />
+            <Tab label={`Pagos (${summary.pagos})`} value="pagos" />
+            <Tab label={`Vencidos (${summary.vencidos})`} value="overdue" />
+          </Tabs>
+
+          {/* Busca */}
+          <Box component="form" onSubmit={handleSearch} sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <TextField
-              label="ID, CPF ou Email"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Ex: 23, 12345678900 ou email@email.com"
+              label="Buscar por nome, CPF ou email"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Ex: João Silva, 12345678900, email@email.com"
               InputProps={{
-                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
+                endAdornment: searchInput && (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={handleClearSearch}>
+                      <ClearIcon />
+                    </IconButton>
+                  </InputAdornment>
+                )
               }}
-              sx={{ minWidth: 300 }}
+              sx={{ flex: 1, maxWidth: 400 }}
+              size="small"
             />
             <Button
               type="submit"
               variant="contained"
-              disabled={loading || !searchQuery.trim()}
-              startIcon={loading ? <CircularProgress size={20} /> : <SearchIcon />}
+              disabled={loading}
+              startIcon={<SearchIcon />}
             >
               Buscar
             </Button>
+            {searchQuery && (
+              <Chip
+                label={`Filtrando: "${searchQuery}"`}
+                onDelete={handleClearSearch}
+                color="primary"
+                variant="outlined"
+              />
+            )}
           </Box>
         </CardContent>
       </Card>
 
-      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 3 }}>{success}</Alert>}
+      {/* Mensagens */}
+      {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-      {searched && !loading && payments.length === 0 && !error && (
-        <Alert severity="info">Nenhum boleto encontrado para este usuário.</Alert>
+      {/* Loading */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
       )}
 
-      {clienteInfo && (
+      {/* Tabela de Boletos */}
+      {!loading && (
         <>
-          {/* Info do Cliente */}
-          <Card sx={{ mb: 3, bgcolor: 'primary.50' }}>
-            <CardContent sx={{ py: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                <Box>
-                  <Typography variant="h6">{clienteInfo.nome}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    CPF: {clienteInfo.cpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')} | ID: {clienteInfo.id}
-                  </Typography>
-                  {clienteInfo.email && (
-                    <Typography variant="body2" color="text.secondary">
-                      Email: {clienteInfo.email}
-                    </Typography>
-                  )}
-                </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button
-                    variant="outlined"
-                    color="secondary"
-                    startIcon={syncing ? <CircularProgress size={20} /> : <SyncIcon />}
-                    onClick={sincronizarBoletos}
-                    disabled={syncing}
-                  >
-                    Sincronizar com Asaas
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    startIcon={<PrintIcon />}
-                    onClick={handlePrintAll}
-                    disabled={summary.pending === 0}
-                  >
-                    Imprimir {summary.pending} Boleto(s)
-                  </Button>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
+          {payments.length === 0 ? (
+            <Alert severity="info">Nenhum boleto encontrado com os filtros selecionados.</Alert>
+          ) : (
+            <>
+              <TableContainer component={Paper} variant="outlined">
+                <Table>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell><strong>Cliente</strong></TableCell>
+                      <TableCell><strong>CPF</strong></TableCell>
+                      <TableCell><strong>Vencimento</strong></TableCell>
+                      <TableCell><strong>Tipo</strong></TableCell>
+                      <TableCell align="right"><strong>Valor</strong></TableCell>
+                      <TableCell align="center"><strong>Status</strong></TableCell>
+                      <TableCell align="center"><strong>Ações</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {payments.map((payment) => (
+                      <TableRow key={payment.id} hover>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight="medium">
+                            {payment.cliente_nome || 'N/A'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            ID: {payment.user_id}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {formatCPF(payment.cliente_cpf)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {formatDate(payment.due_date)}
+                          </Typography>
+                          {payment.payment_date && (
+                            <Typography variant="caption" display="block" color="success.main">
+                              Pago: {formatDate(payment.payment_date)}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={payment.billing_type || 'N/A'}
+                            size="small"
+                            variant="outlined"
+                            color={payment.billing_type === 'BOLETO' ? 'info' : payment.billing_type === 'PIX' ? 'secondary' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight="medium" color={payment.status === 'overdue' ? 'error.main' : 'text.primary'}>
+                            {formatCurrency(payment.valor)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {getStatusChip(payment.status)}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                            {payment.invoice_url && (
+                              <Tooltip title="Abrir boleto">
+                                <IconButton
+                                  color="primary"
+                                  size="small"
+                                  onClick={() => window.open(payment.invoice_url, '_blank')}
+                                >
+                                  <OpenInNewIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            <Tooltip title="Sincronizar com Asaas">
+                              <IconButton
+                                color="secondary"
+                                size="small"
+                                onClick={() => sincronizarBoletos(payment.user_id)}
+                                disabled={syncing === payment.user_id}
+                              >
+                                {syncing === payment.user_id ? (
+                                  <CircularProgress size={18} />
+                                ) : (
+                                  <SyncIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </Tooltip>
+                            {user?.tipo === 'admin' && payment.status === 'pending' && (
+                              <Tooltip title="Deletar boleto">
+                                <IconButton
+                                  color="error"
+                                  size="small"
+                                  onClick={() => setDeleteConfirm(payment.id)}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
 
-          {/* Resumo */}
-          <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-            <Card sx={{ flex: 1, minWidth: 120 }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h4" color="primary.main" fontWeight="bold">{summary.total}</Typography>
-                <Typography variant="caption" color="text.secondary">Total</Typography>
-              </CardContent>
-            </Card>
-            <Card sx={{ flex: 1, minWidth: 120 }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h4" color="warning.main" fontWeight="bold">{summary.pending}</Typography>
-                <Typography variant="caption" color="text.secondary">Pendentes</Typography>
-              </CardContent>
-            </Card>
-            <Card sx={{ flex: 1, minWidth: 120 }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h4" color="success.main" fontWeight="bold">{summary.paid}</Typography>
-                <Typography variant="caption" color="text.secondary">Pagos</Typography>
-              </CardContent>
-            </Card>
-            <Card sx={{ flex: 1, minWidth: 120 }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h5" color="error.main" fontWeight="bold">
-                  R$ {summary.totalPending.toFixed(2)}
+              {/* Paginação */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Mostrando {Math.min((page - 1) * itemsPerPage + 1, totalItems)} a {Math.min(page * itemsPerPage, totalItems)} de {totalItems} boletos
                 </Typography>
-                <Typography variant="caption" color="text.secondary">A Receber</Typography>
-              </CardContent>
-            </Card>
-          </Box>
-
-          {/* Tabela de boletos */}
-          <TableContainer component={Paper} variant="outlined">
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell><strong>#</strong></TableCell>
-                  <TableCell><strong>Vencimento</strong></TableCell>
-                  <TableCell><strong>Tipo</strong></TableCell>
-                  <TableCell align="right"><strong>Valor</strong></TableCell>
-                  <TableCell align="center"><strong>Status</strong></TableCell>
-                  <TableCell align="center"><strong>Ação</strong></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {payments.map((payment, index) => (
-                  <TableRow key={payment.id} hover>
-                    <TableCell>
-                      <Chip label={index + 1} size="small" variant="outlined" />
-                    </TableCell>
-                    <TableCell>
-                      {payment.due_date
-                        ? new Date(payment.due_date).toLocaleDateString('pt-BR')
-                        : 'N/A'}
-                      {payment.payment_date && (
-                        <Typography variant="caption" display="block" color="success.main">
-                          Pago: {new Date(payment.payment_date).toLocaleDateString('pt-BR')}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={payment.billing_type || 'N/A'}
-                        size="small"
-                        variant="outlined"
-                        color={payment.billing_type === 'BOLETO' ? 'info' : 'default'}
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight="medium">
-                        R$ {parseFloat(payment.valor).toFixed(2)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center">
-                      {getStatusChip(payment.status)}
-                    </TableCell>
-                    <TableCell align="center">
-                      {payment.invoice_url && (
-                        <IconButton
-                          color="primary"
-                          onClick={() => window.open(payment.invoice_url, '_blank')}
-                          title="Abrir boleto"
-                        >
-                          <OpenInNewIcon />
-                        </IconButton>
-                      )}
-                      {user?.tipo === 'admin' && payment.status === 'pending' && (
-                          <IconButton
-                              color="error"
-                              onClick={() => setDeleteConfirm(payment.id)}
-                              title="Deletar boleto"
-                          >
-                              <DeleteIcon />
-                          </IconButton>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(e, value) => setPage(value)}
+                  color="primary"
+                  showFirstButton
+                  showLastButton
+                />
+              </Box>
+            </>
+          )}
         </>
       )}
 
-        {/* Dialog de confirmação */}
-        <Dialog
-            open={!!deleteConfirm}
-            onClose={() => setDeleteConfirm(null)}
-        >
-            <DialogTitle>Confirmar Exclusão</DialogTitle>
-            <DialogContent>
-                <DialogContentText>
-                    Tem certeza que deseja deletar este boleto? Esta ação também o removerá
-                    do Asaas (se pendente) e não pode ser desfeita.
-                </DialogContentText>
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={() => setDeleteConfirm(null)}>Cancelar</Button>
-                <Button onClick={() => handleDeletePayment(deleteConfirm)} color="error" autoFocus>
-                    Deletar
-                </Button>
-            </DialogActions>
-        </Dialog>
+      {/* Dialog de confirmação de exclusão */}
+      <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)}>
+        <DialogTitle>Confirmar Exclusão</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Tem certeza que deseja deletar este boleto? Esta ação também o removerá
+            do Asaas (se pendente) e não pode ser desfeita.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)}>Cancelar</Button>
+          <Button onClick={() => handleDeletePayment(deleteConfirm)} color="error" autoFocus>
+            Deletar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }
