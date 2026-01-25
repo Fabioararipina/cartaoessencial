@@ -166,91 +166,107 @@ const handleWebhook = async (req, res) => {
         }
 
         if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
-            // 2. Ativar o usuário e registrar o último pagamento
-            const userResult = await client.query(
-                'UPDATE users SET status = $1, last_payment = NOW() WHERE id = $2 AND status != $1 RETURNING *',
+            // 2. Ativar o usuário (se já não estiver ativo) e registrar o último pagamento.
+            await client.query(
+                'UPDATE users SET status = $1, last_payment = NOW() WHERE id = $2',
                 ['ativo', userId]
             );
-            activatedUser = userResult.rows[0];
 
-            // NOVO: Calcular e salvar comissão se houver um indicador
-            if (activatedUser && activatedUser.referred_by) {
-                const referrerId = activatedUser.referred_by;
-                const referredId = activatedUser.id; // The user who made the payment
+            // Buscar os dados do usuário que pagou, para verificar se ele foi indicado.
+            const paidUserResult = await client.query('SELECT * FROM users WHERE id = $1', [userId]);
+            const paidUser = paidUserResult.rows[0];
+
+            // NOVO: Calcular e salvar comissão e pontos se houver um indicador
+            if (paidUser && paidUser.referred_by) {
+                const referrerId = paidUser.referred_by;
+                const referredId = paidUser.id; // The user who made the payment
                 const paymentValue = payment.value;
 
-                // Parsear data corretamente - usar confirmedDate ou paymentDate ou data atual
-                let paymentDate;
-                const rawDate = payment.confirmedDate || payment.clientPaymentDate || payment.paymentDate || payment.dateCreated;
-                if (rawDate) {
-                    paymentDate = new Date(rawDate);
-                    // Verificar se a data é válida (não é NaN e não é epoch/1970)
-                    if (isNaN(paymentDate.getTime()) || paymentDate.getFullYear() < 2000) {
-                        console.warn(`Invalid payment date from Asaas: ${rawDate}, using current date`);
-                        paymentDate = new Date();
-                    }
-                } else {
-                    console.warn('No payment date from Asaas, using current date');
-                    paymentDate = new Date();
-                }
-
-                const asaasPaymentId = payment.id; // Asaas payment ID
-
-                // Find the ID of the asaas_payments record in our DB using the asaasPaymentId
-                const ourPaymentRecord = await client.query(
-                    `SELECT id FROM asaas_payments WHERE asaas_payment_id = $1`,
-                    [asaasPaymentId]
-                );
-                const ourDbPaymentId = ourPaymentRecord.rows[0]?.id;
-
-                if (ourDbPaymentId) {
-                    await commissionService.calculateAndSaveCommission(
-                        referrerId,
-                        referredId,
-                        paymentValue,
-                        paymentDate,
-                        ourDbPaymentId // Pass our internal DB payment ID
-                    );
-                } else {
-                    console.warn(`Commission calculation skipped: Asaas payment ID ${asaasPaymentId} not found in our local DB.`);
-                }
-            }
-
-            // OLD LOGIC: (Comentar ou remover a lógica antiga de pontos de indicação)
-            /*
-            // 3. Conceder pontos de indicação se houver um indicador
-            if (activatedUser && activatedUser.referred_by) {
-                const referrerId = activatedUser.referred_by;
-
-                const referrerResult = await client.query(
-                    'SELECT id, nivel, total_indicacoes FROM users WHERE id = $1',
+                // Fetch referrer details including their 'tipo'
+                const referrerQueryResult = await client.query(
+                    'SELECT id, nome, tipo, nivel, total_indicacoes FROM users WHERE id = $1',
                     [referrerId]
                 );
 
-                if (referrerResult.rows.length > 0) {
-                    const referrer = referrerResult.rows[0];
-                    const PONTOS_INDICACAO = {
-                        bronze: 200,
-                        prata: 250,
-                        ouro: 300,
-                        diamante: 400
-                    };
-                    const pointsToAward = PONTOS_INDICACAO[referrer.nivel] || PONTOS_INDICACAO.bronze;
+                if (referrerQueryResult.rows.length === 0) {
+                    console.warn(`Referrer ${referrerId} not found. Skipping commission/points calculation.`);
+                } else {
+                    const referrer = referrerQueryResult.rows[0];
 
-                    await client.query(
-                        `INSERT INTO points_ledger (user_id, points, type, description, earned_at, expires_at, renewable, redeemed)
-                         VALUES ($1, $2, $3, $4, NOW(), NOW() + INTERVAL '12 months', TRUE, FALSE)`,
-                        [referrerId, pointsToAward, 'referral', `Pontos por indicação do cliente ${activatedUser.nome}`]
+                    // Parsear data corretamente - usar confirmedDate ou paymentDate ou data atual
+                    let paymentDate;
+                    const rawDate = payment.confirmedDate || payment.clientPaymentDate || payment.paymentDate || payment.dateCreated;
+                    if (rawDate) {
+                        paymentDate = new Date(rawDate);
+                        // Verificar se a data é válida (não é NaN e não é epoch/1970)
+                        if (isNaN(paymentDate.getTime()) || paymentDate.getFullYear() < 2000) {
+                            console.warn(`Invalid payment date from Asaas: ${rawDate}, using current date`);
+                            paymentDate = new Date();
+                        }
+                    } else {
+                        console.warn('No payment date from Asaas, using current date');
+                        paymentDate = new Date();
+                    }
+
+                    const asaasPaymentId = payment.id; // Asaas payment ID
+
+                    // Find the ID of the asaas_payments record in our DB using the asaasPaymentId
+                    const ourPaymentRecord = await client.query(
+                        `SELECT id FROM asaas_payments WHERE asaas_payment_id = $1`,
+                        [asaasPaymentId]
+                    );
+                    const ourDbPaymentId = ourPaymentRecord.rows[0]?.id;
+
+                    // Determina se a comissão é de 'primeiro pagamento' ou 'recorrente'
+                    const referralResult = await client.query(
+                        `SELECT id, status FROM referrals WHERE referrer_id = $1 AND referred_id = $2`,
+                        [referrerId, referredId]
                     );
 
-                    await client.query(
-                        'UPDATE users SET total_indicacoes = total_indicacoes + 1 WHERE id = $1',
-                        [referrerId]
-                    );
+                    const isFirstPayment = referralResult.rows.length > 0 && referralResult.rows[0].status === 'pendente';
+                    const commissionType = isFirstPayment ? 'first' : 'recurring';
+
+                    // --- CÁLCULO DE COMISSÃO (PARA TODOS OS PAGAMENTOS) ---
+                    if (ourDbPaymentId) {
+                        await commissionService.calculateAndSaveCommission(
+                            referrerId,
+                            referredId,
+                            paymentValue,
+                            paymentDate,
+                            ourDbPaymentId,
+                            commissionType // Passando o tipo de comissão
+                        );
+                    } else {
+                        console.warn(`Commission calculation skipped: Asaas payment ID ${asaasPaymentId} not found in our local DB.`);
+                    }
+
+                    // --- CONCESSÃO DE PONTOS E ATUALIZAÇÃO DO STATUS DA INDICAÇÃO (APENAS 1ª VEZ) ---
+                    if (referrer.tipo === 'cliente' && isFirstPayment) {
+                        const PONTOS_INDICACAO = {
+                            bronze: 200, prata: 250, ouro: 300, diamante: 400
+                        };
+                        const pointsToAward = PONTOS_INDICACAO[referrer.nivel] || PONTOS_INDICACAO.bronze;
+    
+                        await client.query(`
+                            INSERT INTO points_ledger (user_id, points, type, description, earned_at, expires_at, renewable, redeemed)
+                            VALUES ($1, $2, 'referral', $3, NOW(), NOW() + INTERVAL '12 months', TRUE, FALSE)
+                        `, [referrerId, pointsToAward, `Pontos por indicação do cliente ${paidUser.nome}`]);
+
+                        await client.query(`
+                            UPDATE users SET total_indicacoes = total_indicacoes + 1 WHERE id = $1
+                        `, [referrerId]);
+
+                        // Atualiza a indicação para 'convertido' para não dar pontos/comissão de 1ª venda novamente
+                        await client.query(`
+                            UPDATE referrals
+                            SET status = 'convertido', points_awarded = $1, conversion_date = NOW()
+                            WHERE id = $2
+                        `, [pointsToAward, referralResult.rows[0].id]);
+                        
+                        console.log(`Points (${pointsToAward}) awarded to client referrer ${referrerId} for referring ${referredId}.`);
+                    }
                 }
             }
-            */
-            // FIM DA LÓGICA ANTIGA DE PONTOS
         }
 
         await client.query('COMMIT');
@@ -573,6 +589,9 @@ const createAsaasInstallment = async (req, res) => {
             allPayments.push(firstPayment);
         }
 
+        // Ordenar parcelas por installmentNumber para garantir ordem correta
+        allPayments.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0));
+
         console.log(`Total de parcelas a salvar: ${allPayments.length}`);
 
         // Debug: mostrar estrutura da primeira parcela
@@ -718,6 +737,9 @@ const createPublicAsaasInstallment = async (req, res) => {
             console.warn('Não foi possível buscar parcelas, salvando apenas o primeiro pagamento');
             allPayments.push(firstPayment);
         }
+
+        // Ordenar parcelas por installmentNumber para garantir ordem correta
+        allPayments.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0));
 
         console.log(`Total de parcelas a salvar: ${allPayments.length}`);
 
