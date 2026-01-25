@@ -396,11 +396,75 @@ const getMyReferredClients = async (req, res) => {
     }
 };
 
+// @desc    Buscar boletos pendentes/vencidos de um cliente (para reativacao)
+// @route   GET /api/partners/client-payments/:userId
+// @access  Private (Partner)
+const getClientPendingPayments = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Verificar se o usuario existe
+        const userResult = await db.query(
+            'SELECT id, nome, cpf, status FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Cliente nao encontrado.' });
+        }
+
+        const user = userResult.rows[0];
+
+        // Buscar boletos pendentes e vencidos
+        const paymentsResult = await db.query(`
+            SELECT
+                id,
+                asaas_payment_id,
+                valor,
+                status,
+                billing_type,
+                due_date,
+                invoice_url
+            FROM asaas_payments
+            WHERE user_id = $1 AND status IN ('pending', 'overdue')
+            ORDER BY due_date ASC
+        `, [userId]);
+
+        const payments = paymentsResult.rows;
+        const overdue = payments.filter(p => p.status === 'overdue');
+        const pending = payments.filter(p => p.status === 'pending');
+
+        res.json({
+            client: {
+                id: user.id,
+                nome: user.nome,
+                cpf: user.cpf,
+                status: user.status
+            },
+            payments: payments,
+            summary: {
+                total: payments.length,
+                overdue: overdue.length,
+                pending: pending.length,
+                totalOverdue: overdue.reduce((sum, p) => sum + parseFloat(p.valor), 0),
+                totalPending: pending.reduce((sum, p) => sum + parseFloat(p.valor), 0)
+            },
+            // Se tem boleto vencido, mostrar o primeiro para pagar
+            nextPayment: overdue.length > 0 ? overdue[0] : (pending.length > 0 ? pending[0] : null)
+        });
+
+    } catch (err) {
+        console.error('Erro ao buscar boletos do cliente:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    }
+};
+
 module.exports = {
     awardPoints,
     checkClient,
     getPartners,
     getPartnerById,
     getMyTransactions,
-    getMyReferredClients // Exportar a nova função
+    getMyReferredClients,
+    getClientPendingPayments
 };

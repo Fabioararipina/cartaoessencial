@@ -1445,3 +1445,172 @@ A causa mais provável para a exibição da interface antiga é uma **camada de 
 
 *   Verificar se existe um serviço de CDN (como Cloudflare) na frente do domínio `cartao.primeatende.com.br`.
 *   Se existir, acessar seu painel e executar a limpeza de cache ("Purge Cache").
+
+---
+
+## 📝 LOG DE DESENVOLVIMENTO - 25/01/2026
+
+### **Resumo da Sessao**
+
+Nesta sessao, implementamos o **Sistema de Dependentes do Cartao**, uma funcionalidade importante que permite que titulares adicionem familiares ao plano.
+
+#### **Sistema de Dependentes - IMPLEMENTADO**
+
+**Regras de Negocio:**
+- R$ 49,90/mes cobre o titular + ate 3 dependentes gratuitos
+- A partir do 4o dependente: +R$ 9,99/mes por dependente extra
+- Dependente tem cadastro completo (login proprio, CPF, acumula pontos)
+- Ao adicionar/remover dependentes: sistema recalcula valor e pode regenerar carne
+- Admin pode configurar todos esses valores na tela de Configuracoes
+
+**1. Banco de Dados:**
+
+Novo arquivo: `add_dependents_system.sql`
+
+```sql
+-- Coluna para relacionar dependente ao titular
+ALTER TABLE users ADD COLUMN holder_id INT REFERENCES users(id) ON DELETE SET NULL;
+
+-- Configuracoes do plano
+INSERT INTO system_configs (config_key, config_value, description) VALUES
+('PLAN_BASE_VALUE', '49.90', 'Valor da mensalidade do plano'),
+('FREE_DEPENDENTS_LIMIT', '3', 'Quantidade de dependentes gratuitos'),
+('EXTRA_DEPENDENT_VALUE', '9.99', 'Valor por dependente extra'),
+('INSTALLMENT_COUNT', '12', 'Quantidade de parcelas do carne');
+```
+
+**2. Backend - Novos Endpoints:**
+
+| Endpoint | Metodo | Descricao |
+|----------|--------|-----------|
+| `/api/users/me/dependents` | GET | Listar dependentes do titular |
+| `/api/users/me/dependents` | POST | Adicionar novo dependente |
+| `/api/users/me/dependents/:id` | DELETE | Remover dependente |
+| `/api/users/me/plan` | GET | Informacoes do plano (valor, dependentes) |
+| `/api/asaas/regenerate-installment/:userId` | POST | Regenerar carne com novo valor |
+
+**3. Frontend:**
+
+| Arquivo | Descricao |
+|---------|-----------|
+| `MeusDependentes.jsx` | Nova pagina para gerenciar dependentes |
+| `AdminSystemConfigs.jsx` | Atualizado com campos do plano |
+| `MainLayout.jsx` | Menu "Dependentes" adicionado |
+| `App.jsx` | Rota `/dependentes` adicionada |
+| `api.js` | Novos servicos de dependentes |
+
+**4. Fluxo de Regeneracao do Carne:**
+
+```
+1. Titular adiciona 4o dependente
+   ↓
+2. Calcula: R$ 49,90 + R$ 9,99 = R$ 59,89/mes
+   ↓
+3. Busca parcelas PENDING (ex: 10 restantes)
+   ↓
+4. Cancela no Asaas (DELETE /payments/{id})
+   ↓
+5. Remove do banco local
+   ↓
+6. Gera novo carne: 10 parcelas de R$ 59,89
+   ↓
+7. Salva novas parcelas
+   ↓
+8. Retorna link do novo carne
+```
+
+#### **Correcao: Link de Indicacao com localhost**
+
+**Problema:** O link de indicacao na pagina `/indicar` mostrava `localhost:5173` em vez da URL de producao.
+
+**Causa:** A variavel `FRONTEND_URL` nao estava configurada no `.env` do servidor.
+
+**Solucao:** Adicionado `FRONTEND_URL=https://cartao.primeatende.com.br` no `.env` do backend e reiniciado PM2.
+
+---
+
+## 🚀 MIGRACAO PARA ASAAS PRODUCAO
+
+### **Quando mudar de Sandbox para Producao:**
+
+1. **Alterar no `.env` do servidor:**
+```env
+# DE (Sandbox):
+ASAAS_API_URL=https://sandbox.asaas.com/api/v3
+ASAAS_API_KEY=$aact_hmlg_...
+
+# PARA (Producao):
+ASAAS_API_URL=https://api.asaas.com/api/v3
+ASAAS_API_KEY=$aact_prod_...
+```
+
+2. **Configurar Webhook no Painel Asaas Producao:**
+   - URL: `https://apicartao.primeatende.com.br/api/asaas/webhook`
+   - Token: Mesmo `ASAAS_WEBHOOK_TOKEN` do `.env`
+   - Eventos: `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED`, `PAYMENT_OVERDUE`, `PAYMENT_DELETED`
+
+3. **Reiniciar backend:**
+```bash
+pm2 restart all
+```
+
+---
+
+## 📥 IMPORTACAO DOS 400 CLIENTES EXISTENTES DO ASAAS
+
+### **IMPORTANTE: O webhook NAO importa dados historicos!**
+
+O webhook so captura **eventos futuros** (novos pagamentos, confirmacoes, etc). Os 400 clientes existentes no Asaas de producao **NAO serao importados automaticamente**.
+
+### **Opcao A: Sync Manual (um por um)**
+
+Usar o botao "Sincronizar" na tela Admin > Boletos para cada usuario.
+- Vantagem: Simples, sem codigo
+- Desvantagem: Demorado para 400 clientes
+
+### **Opcao B: Script de Importacao em Massa (RECOMENDADO)**
+
+Criar um script que:
+1. Busca todos os clientes do Asaas (`GET /customers`)
+2. Para cada cliente:
+   - Verifica se ja existe no nosso banco (por CPF)
+   - Se nao existe: cria o usuario
+   - Atualiza o `asaas_customer_id`
+3. Busca todos os pagamentos de cada cliente (`GET /payments?customer=...`)
+4. Importa os pagamentos para a tabela `asaas_payments`
+
+**Comando para executar (quando o script for criado):**
+```bash
+cd /var/www/cartaoessencial/essencial-clube-api
+node src/utils/importAsaasClients.js
+```
+
+### **Dados que serao importados:**
+
+| Asaas | Nossa Tabela | Campo |
+|-------|--------------|-------|
+| Customer ID | users | asaas_customer_id |
+| Nome | users | nome |
+| CPF | users | cpf |
+| Email | users | email |
+| Telefone | users | telefone |
+| Payments | asaas_payments | todos os campos |
+
+### **Dados que NAO serao importados (precisam ser feitos manualmente):**
+
+- Senhas (usuarios precisarao fazer "Esqueci minha senha")
+- Indicacoes/Referrals (se houver historico)
+- Pontos acumulados (se houver sistema anterior)
+
+---
+
+## 📋 CHECKLIST PARA GO-LIVE PRODUCAO
+
+- [ ] Alterar `ASAAS_API_URL` e `ASAAS_API_KEY` para producao
+- [ ] Configurar webhook no painel Asaas producao
+- [ ] Executar script de importacao dos 400 clientes
+- [ ] Testar criacao de novo cliente (fluxo completo)
+- [ ] Testar pagamento e ativacao via webhook
+- [ ] Testar sistema de dependentes
+- [ ] Verificar links de indicacao com URL correta
+- [ ] Backup do banco de dados antes de qualquer alteracao

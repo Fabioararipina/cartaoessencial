@@ -165,6 +165,29 @@ const handleWebhook = async (req, res) => {
             return res.status(200).json({ message: 'Pagamento removido do sistema.' });
         }
 
+        // Tratar pagamento vencido - inativar usuario
+        if (event === 'PAYMENT_OVERDUE') {
+            // Verificar se o usuario tem outros pagamentos em dia
+            const activePayments = await client.query(
+                `SELECT COUNT(*) FROM asaas_payments
+                 WHERE user_id = $1 AND status IN ('confirmed', 'received')
+                 AND due_date >= CURRENT_DATE - INTERVAL '30 days'`,
+                [userId]
+            );
+
+            // Se nao tem pagamentos recentes confirmados, inativar
+            if (parseInt(activePayments.rows[0].count) === 0) {
+                await client.query(
+                    'UPDATE users SET status = $1 WHERE id = $2 AND status = $3',
+                    ['inativo', userId, 'ativo']
+                );
+                console.log(`Usuario ${userId} inativado por boleto vencido.`);
+            }
+
+            await client.query('COMMIT');
+            return res.status(200).json({ message: 'Webhook PAYMENT_OVERDUE processado.' });
+        }
+
         if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
             // 2. Ativar o usuário (se já não estiver ativo) e registrar o último pagamento.
             await client.query(

@@ -23,10 +23,14 @@ export default function LancarPontos() {
   const [resultado, setResultado] = useState(null);
   
   // Estados de Pagamento
-  const [paymentType, setPaymentType] = useState('installment'); // Padrão: Carnê 12x (boleto parcelado)
-  const [paymentData, setPaymentData] = useState(null); // Dados da resposta do Asaas (assinatura ou carnê)
+  const [paymentType, setPaymentType] = useState('installment'); // Padrao: Carne 12x (boleto parcelado)
+  const [paymentData, setPaymentData] = useState(null); // Dados da resposta do Asaas (assinatura ou carne)
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState('');
+
+  // Estados para boletos pendentes (cliente inativo)
+  const [pendingPayments, setPendingPayments] = useState(null);
+  const [loadingPendingPayments, setLoadingPendingPayments] = useState(false);
 
   const steps = ['Buscar Cliente', 'Lançar Pontos', 'Ativar Cliente', 'Concluído'];
 
@@ -61,15 +65,30 @@ export default function LancarPontos() {
       if (response.data.found) {
         setCliente(response.data.client);
         if (response.data.client.status === 'inativo') {
-          setError('Cliente inativo. Gere uma cobrança para ativá-lo.');
-          setStep(2); // Vai para o passo de ativação
+          // Buscar boletos pendentes/vencidos do cliente
+          setLoadingPendingPayments(true);
+          try {
+            const paymentsResponse = await partnersService.getClientPendingPayments(response.data.client.id);
+            setPendingPayments(paymentsResponse.data);
+            if (paymentsResponse.data.payments.length > 0) {
+              setError('Cliente inativo. Ele precisa pagar o boleto pendente para reativar.');
+            } else {
+              setError('Cliente inativo. Gere uma cobranca para ativa-lo.');
+            }
+          } catch (err) {
+            console.error('Erro ao buscar boletos pendentes:', err);
+            setError('Cliente inativo. Gere uma cobranca para ativa-lo.');
+          } finally {
+            setLoadingPendingPayments(false);
+          }
+          setStep(2); // Vai para o passo de ativacao
         } else if (response.data.client.status === 'ativo') {
-          setStep(1); // Continua para lançar pontos
+          setStep(1); // Continua para lancar pontos
         } else {
-          setError(`Cliente com status "${response.data.client.status}". Não é possível lançar pontos ou ativar.`);
+          setError(`Cliente com status "${response.data.client.status}". Nao e possivel lancar pontos ou ativar.`);
         }
       } else {
-        setError('Cliente não encontrado.');
+        setError('Cliente nao encontrado.');
       }
     } catch (error) {
       const message = error.response?.data?.error || 'Erro ao buscar cliente';
@@ -149,7 +168,9 @@ export default function LancarPontos() {
     setPaymentData(null);
     setPaymentError('');
     setPaymentLoading(false);
-    setPaymentType('installment'); // Resetar para o padrão (Carnê 12x)
+    setPaymentType('installment');
+    setPendingPayments(null);
+    setLoadingPendingPayments(false);
   };
 
   const pontosEstimados = Math.floor(parseFloat(valorCompra.replace(',', '.') || 0) / 10);
@@ -225,24 +246,119 @@ export default function LancarPontos() {
 
       {step === 2 && cliente && (
         <Card><CardContent>
-          <Typography variant="h6" fontWeight="medium" gutterBottom>Ativar Cliente Inativo</Typography>
+          <Typography variant="h6" fontWeight="medium" gutterBottom>Reativar Cliente</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            O cliente <strong>{cliente.nome}</strong> está inativo. Escolha o método de cobrança para ativá-lo.
+            O cliente <strong>{cliente.nome}</strong> esta inativo.
           </Typography>
 
           {paymentError && <Alert severity="error" icon={<WarningAmberIcon />} sx={{ mb: 3 }}>{paymentError}</Alert>}
 
-          {!paymentData ? (
+          {loadingPendingPayments ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : pendingPayments && pendingPayments.payments.length > 0 ? (
+            // MOSTRAR BOLETOS PENDENTES/VENCIDOS EXISTENTES
+            <Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Este cliente possui <strong>{pendingPayments.summary.overdue} boleto(s) vencido(s)</strong> e{' '}
+                <strong>{pendingPayments.summary.pending} pendente(s)</strong>. Ele precisa pagar para reativar.
+              </Alert>
+
+              {pendingPayments.nextPayment && (
+                <Box sx={{ bgcolor: 'warning.lighter', borderRadius: 2, p: 2, mb: 2, textAlign: 'center' }}>
+                  <Typography variant="subtitle2" color="text.secondary">Proximo boleto a pagar:</Typography>
+                  <Typography variant="h5" fontWeight="bold" color="warning.dark">
+                    R$ {parseFloat(pendingPayments.nextPayment.valor).toFixed(2)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Vencimento: {new Date(pendingPayments.nextPayment.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}
+                  </Typography>
+                  <Chip
+                    label={pendingPayments.nextPayment.status === 'overdue' ? 'VENCIDO' : 'PENDENTE'}
+                    color={pendingPayments.nextPayment.status === 'overdue' ? 'error' : 'warning'}
+                    size="small"
+                    sx={{ mt: 1 }}
+                  />
+                </Box>
+              )}
+
+              {pendingPayments.nextPayment?.invoice_url && (
+                <Button
+                  variant="contained"
+                  color="primary"
+                  fullWidth
+                  size="large"
+                  startIcon={<OpenInNewIcon />}
+                  onClick={() => window.open(pendingPayments.nextPayment.invoice_url, '_blank')}
+                  sx={{ mb: 2 }}
+                >
+                  Abrir Boleto para Pagamento
+                </Button>
+              )}
+
+              {/* Lista de todos os boletos pendentes */}
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" gutterBottom>Todos os boletos pendentes:</Typography>
+              <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 200 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Vencimento</TableCell>
+                      <TableCell>Valor</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="center">Abrir</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {pendingPayments.payments.map((payment) => (
+                      <TableRow key={payment.id} hover>
+                        <TableCell>
+                          {new Date(payment.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}
+                        </TableCell>
+                        <TableCell>R$ {parseFloat(payment.valor).toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={payment.status === 'overdue' ? 'Vencido' : 'Pendente'}
+                            color={payment.status === 'overdue' ? 'error' : 'warning'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => window.open(payment.invoice_url, '_blank')}
+                            disabled={!payment.invoice_url}
+                          >
+                            <OpenInNewIcon fontSize="small" />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              <Alert severity="info" sx={{ mt: 2 }}>
+                Apos o pagamento, o cliente sera reativado automaticamente pelo sistema.
+              </Alert>
+            </Box>
+          ) : !paymentData ? (
+            // SEM BOLETOS PENDENTES - MOSTRAR OPCAO DE GERAR NOVO
             <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                O cliente nao possui boletos pendentes. Gere uma nova cobranca para ativa-lo.
+              </Alert>
               <ToggleButtonGroup
                 color="primary" value={paymentType} exclusive fullWidth
                 onChange={(e, newValue) => { if (newValue) setPaymentType(newValue); }} sx={{ mb: 2 }}
               >
-                <ToggleButton value="installment">Carnê 12x (Recomendado)</ToggleButton>
+                <ToggleButton value="installment">Carne 12x (Recomendado)</ToggleButton>
                 <ToggleButton value="subscription">Assinatura Mensal</ToggleButton>
               </ToggleButtonGroup>
               <Button variant="contained" fullWidth size="large" onClick={handleGeneratePayment} disabled={paymentLoading} startIcon={paymentLoading ? <CircularProgress size={24} color="inherit" /> : <PersonIcon />}>
-                Gerar Cobrança
+                Gerar Cobranca
               </Button>
             </>
           ) : (

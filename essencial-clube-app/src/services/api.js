@@ -96,16 +96,17 @@ export const partnersService = {
   getAll: () => api.get('/partners'),
   getById: (id) => api.get(`/partners/${id}`),
   checkClient: (cpf) => api.get(`/partners/check-client/${cpf}`),
+  getClientPendingPayments: (userId) => api.get(`/partners/client-payments/${userId}`),
   getMyTransactions: (params) => api.get('/partners/my-transactions', { params }),
-  getMyReferredClients: (params) => api.get('/partners/my-referred-clients', { params }), // NOVO: Relatório de comissão para parceiro
+  getMyReferredClients: (params) => api.get('/partners/my-referred-clients', { params }),
   awardPoints: (user_cpf, valor_compra) => api.post('/partners/transaction', { user_cpf, valor_compra }),
   createCharge: (data) => api.post('/asaas/charges', data),
-  createSubscription: (data) => api.post('/asaas/subscriptions', data), // Assinatura de 12 meses
-  createInstallment: (data) => api.post('/asaas/installments', data), // NOVO: Carnê Anual
+  createSubscription: (data) => api.post('/asaas/subscriptions', data),
+  createInstallment: (data) => api.post('/asaas/installments', data),
 
   // Payouts
-  requestPayout: () => api.post('/payouts/request'), // NOVO: Solicitar saque de comissões
-  getMyPayoutRequests: (params) => api.get('/payouts/my-requests', { params }), // NOVO: Obter minhas solicitações de saque
+  requestPayout: () => api.post('/payouts/request'),
+  getMyPayoutRequests: (params) => api.get('/payouts/my-requests', { params }),
 };
 
 // ==================== ADMIN ====================

@@ -23,6 +23,11 @@ router.get('/check-client/:cpf', [verifyToken, isPartner], partnersController.ch
 // @access  Private (Partner)
 router.get('/my-referred-clients', [verifyToken, isPartner], partnersController.getMyReferredClients);
 
+// @route   GET /api/partners/client-payments/:userId
+// @desc    Buscar boletos pendentes/vencidos de um cliente (para reativacao)
+// @access  Private (Partner)
+router.get('/client-payments/:userId', [verifyToken, isPartner], partnersController.getClientPendingPayments);
+
 // @route   GET /api/partners/:id
 // @desc    Obter detalhes de um parceiro
 // @access  Private
