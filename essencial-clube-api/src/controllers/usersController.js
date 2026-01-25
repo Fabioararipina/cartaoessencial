@@ -1,4 +1,42 @@
 const db = require('../config/database');
+const bcrypt = require('bcrypt');
+const asaasService = require('../services/asaasService');
+
+// Helper: Buscar configuracoes do sistema
+const getSystemConfig = async (key) => {
+    const result = await db.query(
+        'SELECT config_value FROM system_configs WHERE config_key = $1',
+        [key]
+    );
+    return result.rows[0]?.config_value || null;
+};
+
+// Helper: Calcular valor do plano baseado na quantidade de dependentes
+const calculatePlanValue = async (holderId) => {
+    // Buscar configuracoes do banco
+    const baseValue = parseFloat(await getSystemConfig('PLAN_BASE_VALUE')) || 49.90;
+    const freeLimit = parseInt(await getSystemConfig('FREE_DEPENDENTS_LIMIT')) || 3;
+    const extraValue = parseFloat(await getSystemConfig('EXTRA_DEPENDENT_VALUE')) || 9.99;
+
+    // Contar dependentes ativos do titular
+    const result = await db.query(
+        `SELECT COUNT(*) FROM users WHERE holder_id = $1 AND status = 'ativo'`,
+        [holderId]
+    );
+    const dependentCount = parseInt(result.rows[0].count);
+
+    // Calcular dependentes extras (alem do limite gratuito)
+    const extraDependents = Math.max(0, dependentCount - freeLimit);
+
+    return {
+        baseValue,
+        freeLimit,
+        extraValue,
+        dependentCount,
+        extraDependents,
+        totalValue: baseValue + (extraDependents * extraValue)
+    };
+};
 
 // @desc    Obter assinaturas de um usuário específico
 // @route   GET /api/users/:id/subscriptions
@@ -301,6 +339,287 @@ const getMyStatement = async (req, res) => {
     }
 };
 
+// @desc    Obter dependentes do usuario logado (titular)
+// @route   GET /api/users/me/dependents
+// @access  Private
+const getMyDependents = async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        // Verificar se o usuario e titular (nao e dependente de ninguem)
+        const userResult = await db.query('SELECT id, holder_id FROM users WHERE id = $1', [userId]);
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuario nao encontrado.' });
+        }
+
+        const user = userResult.rows[0];
+
+        // Se o usuario for um dependente, retornar os dependentes do titular dele
+        const holderId = user.holder_id || userId;
+
+        // Buscar dependentes
+        const dependentsResult = await db.query(`
+            SELECT id, cpf, nome, email, telefone, status, created_at
+            FROM users
+            WHERE holder_id = $1
+            ORDER BY created_at ASC
+        `, [holderId]);
+
+        // Calcular valor do plano
+        const planInfo = await calculatePlanValue(holderId);
+
+        res.json({
+            dependents: dependentsResult.rows,
+            planInfo: {
+                baseValue: planInfo.baseValue,
+                freeLimit: planInfo.freeLimit,
+                extraValue: planInfo.extraValue,
+                currentDependents: planInfo.dependentCount,
+                extraDependents: planInfo.extraDependents,
+                totalValue: planInfo.totalValue,
+                freeSlots: Math.max(0, planInfo.freeLimit - planInfo.dependentCount)
+            }
+        });
+    } catch (err) {
+        console.error('Erro ao buscar dependentes:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    }
+};
+
+// @desc    Adicionar dependente ao usuario logado
+// @route   POST /api/users/me/dependents
+// @access  Private
+const addDependent = async (req, res) => {
+    const holderId = req.user.id;
+    const { cpf, nome, email, telefone, senha, parentesco } = req.body;
+
+    if (!cpf || !nome || !email || !senha) {
+        return res.status(400).json({ error: 'CPF, nome, email e senha sao obrigatorios.' });
+    }
+
+    const client = await db.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Verificar se o usuario logado e titular (nao e dependente de ninguem)
+        const holderResult = await client.query('SELECT id, holder_id, status FROM users WHERE id = $1', [holderId]);
+        if (holderResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Usuario nao encontrado.' });
+        }
+
+        const holder = holderResult.rows[0];
+        if (holder.holder_id) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'Dependentes nao podem adicionar outros dependentes.' });
+        }
+
+        // Verificar se CPF ou email ja existem
+        const existingUser = await client.query(
+            'SELECT id FROM users WHERE email = $1 OR cpf = $2',
+            [email, cpf]
+        );
+        if (existingUser.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'Email ou CPF ja cadastrado no sistema.' });
+        }
+
+        // Criar o dependente
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(senha, saltRounds);
+
+        const newDependentResult = await client.query(`
+            INSERT INTO users (cpf, nome, email, telefone, senha_hash, tipo, status, holder_id)
+            VALUES ($1, $2, $3, $4, $5, 'cliente', $6, $7)
+            RETURNING id, cpf, nome, email, telefone, status, created_at
+        `, [cpf, nome, email, telefone, hashedPassword, holder.status, holderId]);
+
+        const newDependent = newDependentResult.rows[0];
+
+        // Calcular novo valor do plano
+        const planInfo = await calculatePlanValue(holderId);
+
+        // Verificar se precisa regenerar o carne (se adicionou dependente extra)
+        let installmentInfo = null;
+        if (planInfo.extraDependents > 0) {
+            // Buscar parcelas PENDING do titular
+            const pendingPayments = await client.query(`
+                SELECT ap.id, ap.asaas_payment_id, ap.valor, ap.due_date
+                FROM asaas_payments ap
+                WHERE ap.user_id = $1 AND ap.status = 'pending'
+                ORDER BY ap.due_date ASC
+            `, [holderId]);
+
+            if (pendingPayments.rows.length > 0) {
+                installmentInfo = {
+                    needsRegeneration: true,
+                    pendingPaymentsCount: pendingPayments.rows.length,
+                    oldValue: pendingPayments.rows[0].valor,
+                    newValue: planInfo.totalValue,
+                    message: `O carne sera regenerado com ${pendingPayments.rows.length} parcelas de R$ ${planInfo.totalValue.toFixed(2)}`
+                };
+            }
+        }
+
+        await client.query('COMMIT');
+
+        res.status(201).json({
+            message: 'Dependente adicionado com sucesso!',
+            dependent: newDependent,
+            planInfo: {
+                baseValue: planInfo.baseValue,
+                freeLimit: planInfo.freeLimit,
+                extraValue: planInfo.extraValue,
+                currentDependents: planInfo.dependentCount,
+                extraDependents: planInfo.extraDependents,
+                totalValue: planInfo.totalValue
+            },
+            installmentInfo
+        });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao adicionar dependente:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    } finally {
+        client.release();
+    }
+};
+
+// @desc    Remover dependente
+// @route   DELETE /api/users/me/dependents/:id
+// @access  Private
+const removeDependent = async (req, res) => {
+    const holderId = req.user.id;
+    const { id: dependentId } = req.params;
+
+    const client = await db.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Verificar se o dependente pertence ao titular
+        const dependentResult = await client.query(
+            'SELECT id, holder_id, nome FROM users WHERE id = $1',
+            [dependentId]
+        );
+
+        if (dependentResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Dependente nao encontrado.' });
+        }
+
+        const dependent = dependentResult.rows[0];
+        if (dependent.holder_id !== holderId) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'Voce nao tem permissao para remover este dependente.' });
+        }
+
+        // Remover o vinculo de dependente (nao deleta o usuario, apenas o vinculo)
+        await client.query(
+            'UPDATE users SET holder_id = NULL, status = $1 WHERE id = $2',
+            ['inativo', dependentId]
+        );
+
+        // Calcular novo valor do plano
+        const planInfo = await calculatePlanValue(holderId);
+
+        // Verificar se precisa regenerar o carne
+        let installmentInfo = null;
+        const pendingPayments = await client.query(`
+            SELECT ap.id, ap.asaas_payment_id, ap.valor, ap.due_date
+            FROM asaas_payments ap
+            WHERE ap.user_id = $1 AND ap.status = 'pending'
+            ORDER BY ap.due_date ASC
+        `, [holderId]);
+
+        if (pendingPayments.rows.length > 0) {
+            const currentPaymentValue = parseFloat(pendingPayments.rows[0].valor);
+            if (currentPaymentValue !== planInfo.totalValue) {
+                installmentInfo = {
+                    needsRegeneration: true,
+                    pendingPaymentsCount: pendingPayments.rows.length,
+                    oldValue: currentPaymentValue,
+                    newValue: planInfo.totalValue,
+                    message: `O carne sera regenerado com ${pendingPayments.rows.length} parcelas de R$ ${planInfo.totalValue.toFixed(2)}`
+                };
+            }
+        }
+
+        await client.query('COMMIT');
+
+        res.json({
+            message: `Dependente ${dependent.nome} removido com sucesso.`,
+            planInfo: {
+                baseValue: planInfo.baseValue,
+                freeLimit: planInfo.freeLimit,
+                extraValue: planInfo.extraValue,
+                currentDependents: planInfo.dependentCount,
+                extraDependents: planInfo.extraDependents,
+                totalValue: planInfo.totalValue
+            },
+            installmentInfo
+        });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao remover dependente:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    } finally {
+        client.release();
+    }
+};
+
+// @desc    Obter informacoes do plano do usuario (valor, dependentes, etc)
+// @route   GET /api/users/me/plan
+// @access  Private
+const getMyPlan = async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        // Verificar se o usuario e titular ou dependente
+        const userResult = await db.query('SELECT id, holder_id, status FROM users WHERE id = $1', [userId]);
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuario nao encontrado.' });
+        }
+
+        const user = userResult.rows[0];
+        const holderId = user.holder_id || userId;
+        const isDependent = user.holder_id !== null;
+
+        // Buscar dados do titular
+        let holderInfo = null;
+        if (isDependent) {
+            const holderResult = await db.query(
+                'SELECT id, nome, email FROM users WHERE id = $1',
+                [user.holder_id]
+            );
+            if (holderResult.rows.length > 0) {
+                holderInfo = holderResult.rows[0];
+            }
+        }
+
+        // Calcular valor do plano
+        const planInfo = await calculatePlanValue(holderId);
+
+        res.json({
+            isDependent,
+            holderInfo,
+            planInfo: {
+                baseValue: planInfo.baseValue,
+                freeLimit: planInfo.freeLimit,
+                extraValue: planInfo.extraValue,
+                currentDependents: planInfo.dependentCount,
+                extraDependents: planInfo.extraDependents,
+                totalValue: planInfo.totalValue,
+                freeSlots: Math.max(0, planInfo.freeLimit - planInfo.dependentCount)
+            }
+        });
+    } catch (err) {
+        console.error('Erro ao buscar plano:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    }
+};
+
 module.exports = {
     getMe,
     updateMe,
@@ -308,4 +627,9 @@ module.exports = {
     getMyPayments,
     getMyTransactions,
     getMyStatement,
+    getMyDependents,
+    addDependent,
+    removeDependent,
+    getMyPlan,
+    calculatePlanValue,
 };

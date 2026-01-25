@@ -52,7 +52,12 @@ export const userService = {
   getMyPayments: () => api.get('/users/me/payments'), // Boletos do cliente logado
   getMyTransactions: (params) => api.get('/users/me/transactions', { params }),
   getMyStatement: (params) => api.get('/users/me/statement', { params }),
-  getMyCommissions: (params) => api.get('/users/me/commissions', { params }), // NOVO
+  getMyCommissions: (params) => api.get('/users/me/commissions', { params }),
+  // Dependentes
+  getMyDependents: () => api.get('/users/me/dependents'),
+  addDependent: (data) => api.post('/users/me/dependents', data),
+  removeDependent: (id) => api.delete(`/users/me/dependents/${id}`),
+  getMyPlan: () => api.get('/users/me/plan'),
 };
 
 // ==================== POINTS ====================
@@ -141,6 +146,7 @@ export const adminService = {
   searchUserPayments: (query) => api.get(`/asaas/payments-search`, { params: { q: query } }),
   syncUserPayments: (userId) => api.post(`/asaas/sync-payments/${userId}`),
   deletePayment: (paymentId) => api.delete(`/asaas/payments/${paymentId}`),
+  regenerateInstallment: (userId) => api.post(`/asaas/regenerate-installment/${userId}`),
 };
 
 export default api;

@@ -1230,6 +1230,246 @@ const getAllPayments = async (req, res) => {
     }
 };
 
+// Helper: Buscar configuracoes do sistema
+const getSystemConfig = async (key) => {
+    const result = await db.query(
+        'SELECT config_value FROM system_configs WHERE config_key = $1',
+        [key]
+    );
+    return result.rows[0]?.config_value || null;
+};
+
+// Helper: Calcular valor do plano baseado na quantidade de dependentes
+const calculatePlanValue = async (holderId) => {
+    // Buscar configuracoes do banco
+    const baseValue = parseFloat(await getSystemConfig('PLAN_BASE_VALUE')) || 49.90;
+    const freeLimit = parseInt(await getSystemConfig('FREE_DEPENDENTS_LIMIT')) || 3;
+    const extraValue = parseFloat(await getSystemConfig('EXTRA_DEPENDENT_VALUE')) || 9.99;
+
+    // Contar dependentes ativos do titular
+    const result = await db.query(
+        `SELECT COUNT(*) FROM users WHERE holder_id = $1 AND status = 'ativo'`,
+        [holderId]
+    );
+    const dependentCount = parseInt(result.rows[0].count);
+
+    // Calcular dependentes extras (alem do limite gratuito)
+    const extraDependents = Math.max(0, dependentCount - freeLimit);
+
+    return {
+        baseValue,
+        freeLimit,
+        extraValue,
+        dependentCount,
+        extraDependents,
+        totalValue: baseValue + (extraDependents * extraValue)
+    };
+};
+
+// @desc    Regenera o carne de um usuario com novo valor (quando dependentes mudam)
+// @route   POST /api/asaas/regenerate-installment/:userId
+// @access  Private (Admin ou proprio usuario)
+const regenerateInstallment = async (req, res) => {
+    const { userId } = req.params;
+    const requestingUserId = req.user.id;
+    const isAdmin = req.user.tipo === 'admin';
+
+    // Verificar permissao (apenas admin ou o proprio titular)
+    if (!isAdmin && requestingUserId !== parseInt(userId)) {
+        return res.status(403).json({ error: 'Sem permissao para regenerar carne deste usuario.' });
+    }
+
+    const client = await db.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Verificar se o usuario existe e buscar seus dados
+        const userResult = await client.query(
+            'SELECT id, nome, email, cpf, telefone, asaas_customer_id, holder_id FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Usuario nao encontrado.' });
+        }
+
+        const user = userResult.rows[0];
+
+        // Verificar se e titular (nao pode regenerar para dependente)
+        if (user.holder_id) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Apenas titulares podem ter carne regenerado.' });
+        }
+
+        // 2. Buscar parcelas PENDING do usuario
+        const pendingPaymentsResult = await client.query(`
+            SELECT id, asaas_payment_id, valor, due_date, billing_type
+            FROM asaas_payments
+            WHERE user_id = $1 AND status = 'pending'
+            ORDER BY due_date ASC
+        `, [userId]);
+
+        const pendingPayments = pendingPaymentsResult.rows;
+
+        if (pendingPayments.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                error: 'Nenhuma parcela pendente encontrada para regenerar.',
+                message: 'O usuario nao possui parcelas pendentes. Crie um novo carne se necessario.'
+            });
+        }
+
+        // 3. Calcular novo valor do plano
+        const planInfo = await calculatePlanValue(userId);
+        const newInstallmentValue = planInfo.totalValue;
+
+        console.log(`Regenerando carne para usuario ${userId}: ${pendingPayments.length} parcelas de R$ ${newInstallmentValue}`);
+
+        // 4. Cancelar cada parcela no Asaas e deletar do banco local
+        for (const payment of pendingPayments) {
+            try {
+                // Deletar do Asaas
+                await asaasService.deletePayment(payment.asaas_payment_id);
+                console.log(`Parcela ${payment.asaas_payment_id} deletada do Asaas.`);
+            } catch (asaasError) {
+                console.warn(`Erro ao deletar parcela ${payment.asaas_payment_id} do Asaas:`, asaasError.message);
+                // Continua mesmo se falhar (pode ja ter sido deletada)
+            }
+
+            // Deletar do banco local
+            await client.query('DELETE FROM asaas_payments WHERE id = $1', [payment.id]);
+        }
+
+        // 5. Criar cliente Asaas se nao existir
+        let asaasCustomerId = user.asaas_customer_id;
+        if (!asaasCustomerId) {
+            console.log(`Cliente Asaas nao encontrado para usuario ${userId}. Criando...`);
+            const asaasCustomer = await asaasService.createCustomer({
+                nome: user.nome,
+                email: user.email,
+                cpf: user.cpf,
+                telefone: user.telefone
+            });
+            asaasCustomerId = asaasCustomer.id;
+            await client.query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [asaasCustomerId, userId]);
+        }
+
+        // 6. Calcular data do primeiro vencimento (usa a data da primeira parcela antiga ou 3 dias a partir de hoje)
+        const firstDueDate = pendingPayments[0]?.due_date
+            ? new Date(pendingPayments[0].due_date)
+            : new Date();
+
+        // Se a data ja passou, usar 3 dias a partir de hoje
+        const today = new Date();
+        if (firstDueDate < today) {
+            firstDueDate.setTime(today.getTime());
+            firstDueDate.setDate(firstDueDate.getDate() + 3);
+        }
+
+        // 7. Gerar novo carne com o numero de parcelas restantes
+        const installmentCount = pendingPayments.length;
+        const totalValue = newInstallmentValue * installmentCount;
+
+        const firstPayment = await asaasService.createInstallment({
+            asaas_customer_id: asaasCustomerId,
+            installmentValue: newInstallmentValue,
+            installmentCount: installmentCount,
+            firstDueDate: firstDueDate.toISOString().split('T')[0],
+            description: `Plano Essencial Saude - ${user.nome} (Regenerado)`,
+            externalReference: `regenerated_installment_user_${userId}_${Date.now()}`
+        });
+
+        const installmentId = firstPayment.installment;
+
+        if (!installmentId) {
+            throw new Error('Asaas nao retornou o ID do parcelamento.');
+        }
+
+        // 8. Aguardar processamento e buscar todas as parcelas
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        let allPayments = [];
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+            attempts++;
+            try {
+                const allPaymentsResponse = await asaasService.asaasApi.get(`/installments/${installmentId}/payments?limit=20`);
+                allPayments = allPaymentsResponse.data?.data || [];
+
+                if (allPayments.length >= installmentCount) {
+                    break;
+                }
+
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            } catch (fetchError) {
+                console.warn(`Erro ao buscar parcelas (tentativa ${attempts}):`, fetchError.message);
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            }
+        }
+
+        if (allPayments.length === 0) {
+            allPayments.push(firstPayment);
+        }
+
+        // Ordenar parcelas
+        allPayments.sort((a, b) => (a.installmentNumber || 0) - (b.installmentNumber || 0));
+
+        // 9. Salvar novas parcelas no banco
+        for (const payment of allPayments) {
+            await client.query(
+                `INSERT INTO asaas_payments (user_id, asaas_payment_id, valor, status, billing_type, due_date, invoice_url)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (asaas_payment_id) DO NOTHING`,
+                [
+                    userId, payment.id, payment.value, payment.status.toLowerCase(),
+                    payment.billingType, payment.dueDate, payment.invoiceUrl
+                ]
+            );
+        }
+
+        await client.query('COMMIT');
+
+        res.status(201).json({
+            message: 'Carne regenerado com sucesso!',
+            installment: {
+                id: installmentId,
+                totalValue: totalValue,
+                installmentCount: installmentCount,
+                installmentValue: newInstallmentValue,
+                bankSlipUrl: firstPayment.bankSlipUrl,
+                invoiceUrl: firstPayment.invoiceUrl,
+                payments: allPayments.map(p => ({
+                    id: p.id,
+                    value: p.value,
+                    dueDate: p.dueDate,
+                    status: p.status,
+                    invoiceUrl: p.invoiceUrl
+                }))
+            },
+            planInfo: {
+                baseValue: planInfo.baseValue,
+                dependentCount: planInfo.dependentCount,
+                extraDependents: planInfo.extraDependents,
+                totalValue: planInfo.totalValue
+            }
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao regenerar carne:', error.stack);
+        res.status(500).json({ error: error.message || 'Erro ao regenerar carne.' });
+    } finally {
+        client.release();
+    }
+};
+
 module.exports = {
     createAsaasCustomer,
     createAsaasCharge,
@@ -1244,5 +1484,6 @@ module.exports = {
     syncUserPayments,
     deletePayment,
     getAllPayments,
+    regenerateInstallment,
 };
 

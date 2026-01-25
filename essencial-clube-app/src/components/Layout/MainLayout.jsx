@@ -20,7 +20,8 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import ReceiptIcon from '@mui/icons-material/Receipt'; // Ícone para Boletos
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'; // NOVO: Ícone para Extrato
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import GroupAddIcon from '@mui/icons-material/GroupAdd'; // Icone para Dependentes
 import LogoutIcon from '@mui/icons-material/Logout';
 import logo from '../../assets/logo.png'; // NOVO: Importar logo que estava faltando
 
@@ -42,19 +43,21 @@ const getNavItems = (tipo) => {
     commissionConfigs: <SettingsIcon />,
     comissoes: <AttachMoneyIcon />,
     saques: <AccountBalanceWalletIcon />,
-    boletos: <ReceiptIcon />, // Ícone para Boletos
+    boletos: <ReceiptIcon />,
     extrato: <ReceiptLongIcon />,
+    dependentes: <GroupAddIcon />,
   };
 
   const items = {
     cliente: [
-      { to: '/dashboard', label: 'Início', icon: iconMap.home },
+      { to: '/dashboard', label: 'Inicio', icon: iconMap.home },
       { to: '/extrato', label: 'Extrato', icon: iconMap.extrato },
       { to: '/parceiros', label: 'Parceiros', icon: iconMap.parceiros },
-      { to: '/premios', label: 'Prêmios', icon: iconMap.premios },
+      { to: '/premios', label: 'Premios', icon: iconMap.premios },
       { to: '/indicar', label: 'Indicar', icon: iconMap.indicar },
+      { to: '/dependentes', label: 'Dependentes', icon: iconMap.dependentes },
       { to: '/boletos', label: 'Meus Boletos', icon: iconMap.boletos },
-      { to: '/comissoes', label: 'Minhas Comissões', icon: iconMap.comissoes }, // NEW
+      { to: '/comissoes', label: 'Minhas Comissoes', icon: iconMap.comissoes },
     ],
     parceiro: [
       { to: '/parceiro', label: 'Início', icon: iconMap.home },

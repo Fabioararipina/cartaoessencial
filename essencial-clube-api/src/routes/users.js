@@ -30,4 +30,12 @@ router.get('/me/statement', verifyToken, usersController.getMyStatement);
 // NEW: Route for user's commissions report
 router.get('/me/commissions', verifyToken, userCommissionsController.getMyCommissions);
 
+// Rotas de Dependentes
+router.get('/me/dependents', verifyToken, usersController.getMyDependents);
+router.post('/me/dependents', verifyToken, usersController.addDependent);
+router.delete('/me/dependents/:id', verifyToken, usersController.removeDependent);
+
+// Rota do Plano
+router.get('/me/plan', verifyToken, usersController.getMyPlan);
+
 module.exports = router;

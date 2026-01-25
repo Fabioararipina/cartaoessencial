@@ -79,4 +79,9 @@ router.get('/payment/:paymentId/bankslip', isAdminOrPartner, asaasController.get
 // @access  Private (Admin/Partner)
 router.post('/sync-payments/:userId', isAdminOrPartner, asaasController.syncUserPayments);
 
+// @route   POST /api/asaas/regenerate-installment/:userId
+// @desc    Regenera o carne de um usuario com novo valor (quando dependentes mudam)
+// @access  Private (Admin ou proprio usuario)
+router.post('/regenerate-installment/:userId', asaasController.regenerateInstallment);
+
 module.exports = router;
