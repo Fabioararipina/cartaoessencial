@@ -620,6 +620,82 @@ const getMyPlan = async (req, res) => {
     }
 };
 
+// @desc    Consultar boletos pendentes por CPF (publico, sem login)
+// @route   GET /api/users/public/boletos/:cpf
+// @access  Public
+const getPublicBoletos = async (req, res) => {
+    const { cpf } = req.params;
+
+    // Limpar CPF (remover pontos e tracos)
+    const cpfLimpo = cpf.replace(/\D/g, '');
+
+    if (cpfLimpo.length !== 11) {
+        return res.status(400).json({ error: 'CPF invalido.' });
+    }
+
+    try {
+        // Buscar usuario pelo CPF
+        const userResult = await db.query(
+            'SELECT id, nome, status FROM users WHERE cpf = $1',
+            [cpfLimpo]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({
+                found: false,
+                error: 'CPF nao encontrado no sistema.'
+            });
+        }
+
+        const user = userResult.rows[0];
+
+        // Buscar boletos pendentes e vencidos
+        const paymentsResult = await db.query(`
+            SELECT
+                id,
+                asaas_payment_id,
+                valor,
+                status,
+                billing_type,
+                due_date,
+                invoice_url
+            FROM asaas_payments
+            WHERE user_id = $1 AND status IN ('pending', 'overdue')
+            ORDER BY due_date ASC
+        `, [user.id]);
+
+        const payments = paymentsResult.rows;
+        const overdue = payments.filter(p => p.status === 'overdue');
+        const pending = payments.filter(p => p.status === 'pending');
+
+        res.json({
+            found: true,
+            client: {
+                nome: user.nome.split(' ')[0], // Apenas primeiro nome por privacidade
+                status: user.status
+            },
+            payments: payments.map(p => ({
+                id: p.id,
+                valor: p.valor,
+                status: p.status,
+                due_date: p.due_date,
+                invoice_url: p.invoice_url
+            })),
+            summary: {
+                total: payments.length,
+                overdue: overdue.length,
+                pending: pending.length,
+                totalValue: payments.reduce((sum, p) => sum + parseFloat(p.valor), 0)
+            },
+            nextPayment: overdue.length > 0 ? overdue[0] : (pending.length > 0 ? pending[0] : null)
+        });
+
+    } catch (err) {
+        console.error('Erro ao buscar boletos publicos:', err.stack);
+        res.status(500).json({ error: 'Erro interno do servidor.' });
+    }
+};
+
 module.exports = {
     getMe,
     updateMe,
@@ -632,4 +708,5 @@ module.exports = {
     removeDependent,
     getMyPlan,
     calculatePlanValue,
+    getPublicBoletos,
 };

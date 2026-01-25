@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import LandingIndicacao from './pages/LandingIndicacao';
 import RegisterReferral from './pages/RegisterReferral';
+import ConsultaBoletos from './pages/ConsultaBoletos';
 
 // Páginas do Cliente
 import Dashboard from './pages/Dashboard';
@@ -128,6 +129,9 @@ function App() {
 
           {/* Rota de indicação (pública) - Landing Page */}
           <Route path="/i/:code" element={<LandingIndicacao />} />
+
+          {/* Consulta pública de boletos (sem login) */}
+          <Route path="/consulta-boletos" element={<ConsultaBoletos />} />
 
           {/* 404 */}
           <Route path="*" element={<Navigate to="/login" replace />} />

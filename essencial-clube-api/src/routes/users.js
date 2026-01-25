@@ -1,8 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const usersController = require('../controllers/usersController');
-const userCommissionsController = require('../controllers/userCommissionsController'); // NEW
+const userCommissionsController = require('../controllers/userCommissionsController');
 const { verifyToken, isAdmin } = require('../middleware/auth');
+
+// =============================================
+// ROTAS PUBLICAS (sem autenticacao)
+// =============================================
+
+// @route   GET /api/users/public/boletos/:cpf
+// @desc    Consultar boletos pendentes por CPF (publico)
+// @access  Public
+router.get('/public/boletos/:cpf', usersController.getPublicBoletos);
+
+// =============================================
+// ROTAS PRIVADAS (requerem autenticacao)
+// =============================================
 
 // @route   GET /api/users/:id/subscriptions
 // @desc    Obter assinaturas de um usuário (apenas admin)
